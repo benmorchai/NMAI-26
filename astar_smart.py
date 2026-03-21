@@ -149,37 +149,17 @@ def get_analysis(round_id, seed_index):
     return None
 
 
-def plan_viewports(map_w, map_h, max_vp=15, num_queries=9):
+def plan_viewports_3x3(map_w=40, map_h=40, vp_size=15):
     """
-    Plan viewport positions to cover the entire map.
-    Uses a 3x3 grid of 15x15 viewports with overlap for a 40x40 map.
+    Fixed 3x3 grid of 15x15 viewports covering the full 40x40 map.
+    Positions: (0,0),(13,0),(25,0),(0,13),(13,13),(25,13),(0,25),(13,25),(25,25)
+    This gives 100% coverage with some overlap in the seams.
     """
+    offsets = [0, 13, 25]  # 0+15=15, 13+15=28, 25+15=40 → full coverage
     viewports = []
-
-    if num_queries >= 4:
-        # 3x3 grid covers 40x40 well with 15x15 viewports
-        positions = []
-        for gy in range(3):
-            for gx in range(3):
-                vx = min(gx * 13, map_w - max_vp)  # 0, 13, 25
-                vy = min(gy * 13, map_h - max_vp)  # 0, 13, 25
-                positions.append((vx, vy))
-        viewports = [(x, y, max_vp, max_vp) for x, y in positions]
-        # Trim to query budget
-        viewports = viewports[:num_queries]
-    elif num_queries >= 2:
-        # 2x2 grid
-        for gy in range(2):
-            for gx in range(2):
-                vx = gx * (map_w - max_vp)
-                vy = gy * (map_h - max_vp)
-                viewports.append((vx, vy, max_vp, max_vp))
-    else:
-        # Single center viewport
-        cx = (map_w - max_vp) // 2
-        cy = (map_h - max_vp) // 2
-        viewports.append((cx, cy, max_vp, max_vp))
-
+    for vy in offsets:
+        for vx in offsets:
+            viewports.append((vx, vy, vp_size, vp_size))
     return viewports
 
 
@@ -342,12 +322,78 @@ def submit_prediction(round_id, seed_index, prediction):
     return resp
 
 
+def find_settlement_viewport(initial_state, map_w, map_h, vp_size=15):
+    """Find a viewport centered on the densest cluster of settlements."""
+    settlements = initial_state.get("settlements", [])
+    if not settlements:
+        return (12, 12, vp_size, vp_size)  # center fallback
+
+    # Find center of mass of settlements
+    cx = sum(s["x"] for s in settlements) / len(settlements)
+    cy = sum(s["y"] for s in settlements) / len(settlements)
+
+    # Clamp to valid viewport position
+    vx = max(0, min(int(cx - vp_size // 2), map_w - vp_size))
+    vy = max(0, min(int(cy - vp_size // 2), map_h - vp_size))
+    return (vx, vy, vp_size, vp_size)
+
+
+def observe_seed(round_id, seed_idx, initial_state, map_w, map_h, use_bonus_query=False):
+    """
+    Run 9 simulate queries (3x3 grid) for one seed.
+    Optionally run 1 bonus query on settlement cluster.
+    Returns observations dict: (x, y) -> [count_class_0, ..., count_class_5]
+    """
+    observations = defaultdict(lambda: [0] * NUM_CLASSES)
+
+    # 9 queries: 3x3 grid for 100% coverage
+    viewports = plan_viewports_3x3(map_w, map_h)
+
+    for vp_idx, (vx, vy, vw, vh) in enumerate(viewports):
+        print(f"    Q{vp_idx+1}/{'10' if use_bonus_query else '9'}: ({vx},{vy}) {vw}x{vh}...", end=" ")
+        try:
+            result = simulate(round_id, seed_idx, vx, vy, vw, vh)
+            sim_grid = result["grid"]
+            for row_idx, row in enumerate(sim_grid):
+                for col_idx, cell_val in enumerate(row):
+                    abs_x = vx + col_idx
+                    abs_y = vy + row_idx
+                    if abs_x < map_w and abs_y < map_h:
+                        cls = GRID_TO_CLASS.get(cell_val, 0)
+                        observations[(abs_x, abs_y)][cls] += 1
+            print("OK")
+        except Exception as e:
+            print(f"ERROR: {e}")
+
+    # Bonus query: extra observation on settlement area (gives 2 samples for those cells)
+    if use_bonus_query:
+        vx, vy, vw, vh = find_settlement_viewport(initial_state, map_w, map_h)
+        print(f"    Q10/10: BONUS settlements ({vx},{vy}) {vw}x{vh}...", end=" ")
+        try:
+            result = simulate(round_id, seed_idx, vx, vy, vw, vh)
+            sim_grid = result["grid"]
+            for row_idx, row in enumerate(sim_grid):
+                for col_idx, cell_val in enumerate(row):
+                    abs_x = vx + col_idx
+                    abs_y = vy + row_idx
+                    if abs_x < map_w and abs_y < map_h:
+                        cls = GRID_TO_CLASS.get(cell_val, 0)
+                        observations[(abs_x, abs_y)][cls] += 1
+            print("OK")
+        except Exception as e:
+            print(f"ERROR: {e}")
+
+    coverage = len(observations) / (map_w * map_h) * 100
+    print(f"    Coverage: {len(observations)}/{map_w*map_h} cells ({coverage:.1f}%)")
+    return observations
+
+
 def main():
     print("=" * 60)
-    print("ASTAR ISLAND SMART PREDICTOR")
+    print("ASTAR ISLAND SMART PREDICTOR v2")
     print("=" * 60)
 
-    # Step 1: Learn from completed rounds
+    # Step 1: Learn from completed rounds (including round 13)
     print("\n[STEP 1] Learning from completed rounds...")
     learned_dists = learn_from_completed_rounds()
 
@@ -376,88 +422,78 @@ def main():
     queries_remaining = queries_max - queries_used
     print(f"  Queries: {queries_used}/{queries_max} used, {queries_remaining} remaining")
 
-    # Plan query budget: 9 per seed ideally, but respect limits
-    queries_per_seed = min(9, queries_remaining // seeds_count)
-    if queries_per_seed < 1:
-        print("  WARNING: Not enough queries for observations! Using learned distributions only.")
-        queries_per_seed = 0
+    # Budget: 9 per seed = 45, bonus 1 per seed for first 5 remaining = 50
+    needed = seeds_count * 9  # 45
+    bonus_budget = queries_remaining - needed  # ideally 5
+    if queries_remaining < needed:
+        print(f"  WARNING: Only {queries_remaining} queries left, need {needed}!")
+        print(f"  Will use learned distributions for seeds that can't be observed.")
 
-    print(f"  Using {queries_per_seed} queries per seed ({queries_per_seed * seeds_count} total)")
+    print(f"  Plan: 9 queries × {seeds_count} seeds = {needed}")
+    if bonus_budget > 0:
+        print(f"  Bonus queries available: {bonus_budget} (settlement re-samples)")
 
-    # Step 4: For each seed, observe and predict
+    # Step 4: Observe all seeds, then submit all
+    all_observations = {}
+    queries_spent = 0
+
+    from collections import Counter
+
     for seed_idx in range(seeds_count):
         print(f"\n{'='*40}")
-        print(f"[SEED {seed_idx}]")
+        print(f"  [SEED {seed_idx}] Observing...")
         print(f"{'='*40}")
 
         state = initial_states[seed_idx]
-
-        # Count terrain types
-        from collections import Counter
         flat = [c for row in state["grid"] for c in row]
         counts = Counter(flat)
-        print(f"  Terrain: {dict(counts)}")
-        print(f"  Settlements: {len(state.get('settlements', []))}")
+        print(f"    Terrain: {dict(counts)}")
+        print(f"    Settlements: {len(state.get('settlements', []))}")
 
-        # Observe with simulate queries
-        observations = defaultdict(lambda: [0] * NUM_CLASSES)
+        remaining_now = queries_remaining - queries_spent
+        if remaining_now < 9:
+            print(f"    SKIP observation (only {remaining_now} queries left)")
+            all_observations[seed_idx] = defaultdict(lambda: [0] * NUM_CLASSES)
+            continue
 
-        if queries_per_seed > 0:
-            viewports = plan_viewports(map_w, map_h, max_vp=15, num_queries=queries_per_seed)
-            viewports = viewports[:queries_per_seed]  # Limit to budget
+        use_bonus = bonus_budget > 0 and remaining_now >= 10
+        obs = observe_seed(round_id, seed_idx, state, map_w, map_h, use_bonus_query=use_bonus)
+        all_observations[seed_idx] = obs
+        queries_spent += 10 if use_bonus else 9
+        if use_bonus:
+            bonus_budget -= 1
 
-            for vp_idx, (vx, vy, vw, vh) in enumerate(viewports):
-                print(f"  Query {vp_idx + 1}/{len(viewports)}: viewport ({vx},{vy}) {vw}x{vh}...", end=" ")
-                try:
-                    result = simulate(round_id, seed_idx, vx, vy, vw, vh)
-                    sim_grid = result["grid"]
+    # Step 5: Build predictions and submit ONCE per seed
+    print(f"\n{'='*60}")
+    print("[STEP 5] Building predictions and submitting...")
+    print(f"{'='*60}")
 
-                    # Count observations
-                    cells_observed = 0
-                    for row_idx, row in enumerate(sim_grid):
-                        for col_idx, cell_val in enumerate(row):
-                            abs_x = vx + col_idx
-                            abs_y = vy + row_idx
-                            if abs_x < map_w and abs_y < map_h:
-                                cls = GRID_TO_CLASS.get(cell_val, 0)
-                                observations[(abs_x, abs_y)][cls] += 1
-                                cells_observed += 1
+    for seed_idx in range(seeds_count):
+        state = initial_states[seed_idx]
+        obs = all_observations[seed_idx]
 
-                    print(f"OK ({cells_observed} cells)")
-                except Exception as e:
-                    print(f"ERROR: {e}")
-
-            print(f"  Total observed cells: {len(observations)} unique positions")
-            # Show observation coverage
-            total_cells = map_w * map_h
-            coverage = len(observations) / total_cells * 100
-            print(f"  Coverage: {coverage:.1f}% of map")
-
-        # Build prediction
-        print("  Building prediction...")
+        print(f"\n  [SEED {seed_idx}] Building prediction...", end=" ")
         prediction = build_prediction_from_observations(
-            state, observations, learned_dists, map_w, map_h
+            state, obs, learned_dists, map_w, map_h
         )
 
-        # Verify
-        for y in range(len(prediction)):
-            for x in range(len(prediction[0])):
+        # Quick verify
+        for y in range(map_h):
+            for x in range(map_w):
                 s = sum(prediction[y][x])
-                assert abs(s - 1.0) < 1e-6, f"Prob sum at ({x},{y}) = {s}"
+                assert abs(s - 1.0) < 1e-6, f"Sum={s} at ({x},{y})"
                 for p in prediction[y][x]:
-                    assert p >= FLOOR - 1e-6, f"Prob below floor at ({x},{y}): {p}"
+                    assert p >= FLOOR - 1e-6, f"Floor violation at ({x},{y})"
 
-        # Submit
-        print(f"  Submitting prediction...")
+        # Submit ONCE
         resp = submit_prediction(round_id, seed_idx, prediction)
         if resp.status_code == 200:
             result = resp.json()
-            score = result.get("score", "N/A")
-            print(f"  SUCCESS! Score: {score}")
+            print(f"SUBMITTED! Score: {result.get('score', 'pending')}")
         else:
-            print(f"  ERROR {resp.status_code}: {resp.text}")
+            print(f"ERROR {resp.status_code}: {resp.text[:200]}")
 
-    # Step 5: Final scores
+    # Step 6: Final scores
     print(f"\n{'='*60}")
     print("[FINAL SCORES]")
     print(f"{'='*60}")
