@@ -70,7 +70,9 @@ POST endpoints (create):
 - POST /employee {firstName, lastName, userType:"NO_ACCESS", department:{id:X}, email?, dateOfBirth?:"YYYY-MM-DD"}
   * MUST include department — GET /department first to find ID
 - POST /supplier {name, email?, organizationNumber?}
-- POST /product {name, number?, priceExcludingVatCurrency?, description?}
+- POST /product {name, number?, priceExcludingVatCurrency?, vatType?:{id:X}, description?}
+  * If VAT rate is mentioned: GET /ledger/vatType first to find correct ID
+  * Common: "Utgående avgift, høy sats" = 25%, "lav sats" = 12%, "middels sats" = 15%
 - POST /department {name, departmentNumber?}
 - POST /contact {firstName, lastName, customer:{id:X}, email?}
 - POST /project {name, number, isInternal:true, projectManager:{id:EMP_ID}, startDate:"YYYY-MM-DD"}
@@ -136,8 +138,8 @@ def api(session, base, call):
         log.info(f"  {method} {path}: {r.status_code}")
         data = r.json()
         s = json.dumps(data, ensure_ascii=False)
-        if len(s) > 3000 and "values" in data:
-            data = {"values": data["values"][:10], "_truncated": True, "fullResultSize": data.get("fullResultSize")}
+        if len(s) > 2000 and "values" in data:
+            data = {"values": data["values"][:8], "_truncated": True, "fullResultSize": data.get("fullResultSize")}
         return {"status": r.status_code, "data": data}
     except Exception as e:
         return {"status": 500, "error": str(e)}
