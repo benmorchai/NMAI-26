@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NorgesGruppen — Training Monitor</title>
+<style>
+  :root {
+    --bg: #0f1117; --card: #1a1d27; --border: #2a2d3a; --text: #e4e4e7;
+    --muted: #71717a; --green: #22c55e; --yellow: #eab308; --red: #ef4444;
+    --blue: #3b82f6; --purple: #a855f7; --orange: #f97316; --cyan: #06b6d4;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: 'JetBrains Mono','Consolas',monospace;
+    background: var(--bg); color: var(--text); padding: 20px; min-height: 100vh;
+  }
+  .header {
+    display:flex; justify-content:space-between; align-items:center;
+    margin-bottom:20px; padding-bottom:14px; border-bottom:1px solid var(--border);
+  }
+  .header h1 {
+    font-size:1.3rem; font-weight:700;
+    background:linear-gradient(135deg,var(--blue),var(--purple));
+    -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+  }
+  .header .meta { font-size:0.75rem; color:var(--muted); text-align:right; }
+  .sound-toggle {
+    cursor:pointer; padding:5px 10px; border-radius:5px;
+    border:1px solid var(--border); background:var(--card); color:var(--text); font-size:0.75rem;
+  }
+
+  .banner {
+    padding:12px 18px; border-radius:8px; margin-bottom:8px;
+    font-size:0.85rem; font-weight:600; display:flex; align-items:center; gap:10px;
+  }
+  .banner .pulse {
+    width:10px; height:10px; border-radius:50%;
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  .banner.training { background:#1e3a5f22; border:1px solid var(--blue); color:var(--blue); }
+  .banner.training .pulse { background:var(--blue); }
+  .banner.finished { background:#14532d22; border:1px solid var(--green); color:var(--green); }
+  .banner.finished .pulse { background:var(--green); animation:none; }
+  .banner.waiting { background:#451a0322; border:1px solid var(--orange); color:var(--orange); }
+  .banner.waiting .pulse { background:var(--orange); }
+  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(0.8)} }
+
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px; margin-bottom:16px; }
+  .card {
+    background:var(--card); border:1px solid var(--border); border-radius:8px; padding:16px;
+  }
+  .card h3 { font-size:0.7rem; text-transform:uppercase; letter-spacing:0.1em; color:var(--muted); margin-bottom:8px; }
+  .card .big { font-size:1.8rem; font-weight:800; line-height:1; }
+  .card .sub { font-size:0.75rem; color:var(--muted); margin-top:4px; }
+
+  .progress-bg { background:#2a2d3a; border-radius:6px; height:8px; margin-top:6px; overflow:hidden; }
+  .progress-fill { height:100%; border-radius:6px; transition:width 0.5s; }
+
+  .metric-row { display:flex; justify-content:space-between; padding:5px 0; border-bottom:1px solid #ffffff08; font-size:0.8rem; }
+  .metric-row:last-child { border:none; }
+  .metric-label { color:var(--muted); }
+  .metric-val { font-weight:600; }
+
+  .section { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:16px; }
+  .section h3 { font-size:0.7rem; text-transform:uppercase; letter-spacing:0.1em; color:var(--muted); margin-bottom:10px; }
+
+  /* Submission history */
+  .sub-history { margin-bottom:16px; }
+  .sub-row { display:grid; grid-template-columns:1fr 80px 80px 100px; gap:8px; padding:8px 0; border-bottom:1px solid #ffffff08; font-size:0.8rem; align-items:center; }
+  .sub-row.hdr { color:var(--muted); font-weight:600; font-size:0.7rem; text-transform:uppercase; }
+  .sub-badge { padding:2px 8px; border-radius:4px; font-size:0.7rem; font-weight:700; }
+  .sub-badge.ok { background:var(--green); color:#000; }
+  .sub-badge.fail { background:var(--red); color:#fff; }
+
+  /* Strategy cards */
+  .strategies { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:16px; }
+  .strategies h3 { font-size:0.7rem; text-transform:uppercase; letter-spacing:0.1em; color:var(--muted); margin-bottom:12px; }
+  .strat-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  .strat-item { padding:12px; border-radius:6px; background:rgba(255,255,255,0.02); border:1px solid transparent; }
+  .strat-item.recommended { border-color:var(--green); background:rgba(34,197,94,0.05); }
+  .strat-name { font-size:0.75rem; font-weight:600; margin-bottom:4px; }
+  .strat-score { font-size:1.6rem; font-weight:800; }
+  .strat-desc { font-size:0.7rem; color:var(--muted); margin-top:4px; }
+  .strat-detail { font-size:0.7rem; color:var(--muted); margin-top:2px; }
+  .strat-badge { font-size:0.6rem; padding:2px 6px; border-radius:4px; background:var(--green); color:#000; font-weight:700; margin-left:6px; }
+
+  .info-box { font-size:0.72rem; color:var(--muted); padding:10px; background:rgba(255,255,255,0.02); border-radius:6px; margin-top:10px; line-height:1.5; }
+
+  .run-badge { font-size:0.65rem; padding:2px 8px; border-radius:10px; font-weight:600; color:#fff; }
+  .epoch-log { max-height:200px; overflow-y:auto; }
+  .epoch-row { font-size:0.73rem; display:grid; grid-template-columns:40px 1fr 1fr 1fr 1fr; gap:6px; padding:3px 0; border-bottom:1px solid #ffffff04; }
+  .epoch-row.hdr { color:var(--muted); font-weight:600; }
+
+  canvas { width:100% !important; height:220px !important; }
+
+  .notification {
+    position:fixed; top:20px; right:20px; padding:16px 24px; border-radius:10px;
+    background:var(--green); color:#000; font-weight:700; font-size:1.1rem;
+    z-index:1000; display:none; box-shadow:0 4px 20px rgba(34,197,94,0.4);
+    animation: slideIn 0.5s ease;
+  }
+  @keyframes slideIn { from{transform:translateX(100px);opacity:0} to{transform:translateX(0);opacity:1} }
+
+  .tab-bar { display:flex; gap:4px; margin-bottom:14px; }
+  .tab { padding:6px 14px; border-radius:6px; font-size:0.75rem; cursor:pointer; border:1px solid var(--border); background:var(--card); color:var(--muted); font-weight:600; }
+  .tab.active { background:var(--blue); color:#fff; border-color:var(--blue); }
+
+  @media(max-width:700px) { .strat-grid{grid-template-columns:1fr;} .grid{grid-template-columns:1fr;} }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>NorgesGruppen Object Detection</h1>
+    <div style="font-size:0.7rem;color:var(--muted);margin-top:3px">NM i AI 2026 — Training & Submission Monitor</div>
+  </div>
+  <div class="meta">
+    <button class="sound-toggle" onclick="toggleSound()" id="soundBtn">Lyd: PA</button>
+    <div id="lastRefresh" style="margin-top:4px">Laster...</div>
+  </div>
+</div>
+
+<!-- Submission History -->
+<div class="section sub-history">
+  <h3>Submission Historikk</h3>
+  <div class="sub-row hdr"><span>Modell</span><span>Score</span><span>Status</span><span>Tid</span></div>
+  <div class="sub-row">
+    <span>YOLOv8s .pt (ultralytics 8.4 -> 8.1 mismatch)</span>
+    <span style="color:var(--red)">FEIL</span>
+    <span><span class="sub-badge fail">Exit 1</span></span>
+    <span style="color:var(--muted)">21. mars 21:59</span>
+  </div>
+  <div class="sub-row">
+    <span>YOLOv8s ONNX 1-class detection (50ep)</span>
+    <span style="color:var(--green);font-weight:800">0.6440</span>
+    <span><span class="sub-badge ok">OK</span></span>
+    <span style="color:var(--muted)">21. mars 23:54</span>
+  </div>
+  <div class="info-box">
+    <strong>Score breakdown:</strong> 0.92 det mAP x 0.70 + 0.00 cls mAP x 0.30 = <strong>0.6440</strong> | Rank #270/333 | 4 submits igjen i dag
+  </div>
+</div>
+
+<!-- Banners - generated dynamically -->
+<div id="banners"></div>
+
+<!-- Tab bar for run groups -->
+<div class="tab-bar">
+  <div class="tab active" onclick="showTab('overnight')">Nattreninger (aktive)</div>
+  <div class="tab" onclick="showTab('original')">Originale (ferdige)</div>
+</div>
+
+<!-- Training run cards - generated dynamically -->
+<div id="runs_overnight" class="grid"></div>
+<div id="runs_original" class="grid" style="display:none"></div>
+
+<!-- Strategy comparison -->
+<div class="strategies">
+  <h3>Submission Strategi — Estimert Score</h3>
+  <div class="strat-grid" id="stratGrid">
+    <div class="strat-item" id="strat_a">
+      <div class="strat-name">A: Multiclass</div>
+      <div class="strat-score" style="color:var(--purple)">--</div>
+      <div class="strat-desc">356-class modell</div>
+      <div class="strat-detail">Det: -- | Cls: --</div>
+    </div>
+    <div class="strat-item" id="strat_b">
+      <div class="strat-name">B: Detection Only</div>
+      <div class="strat-score" style="color:var(--blue)">--</div>
+      <div class="strat-desc">1-class, cat_id=0 (maks 70p)</div>
+      <div class="strat-detail">Det: -- | Cls: 0</div>
+    </div>
+    <div class="strat-item" id="strat_c">
+      <div class="strat-name">C: Hybrid</div>
+      <div class="strat-score" style="color:var(--green)">--</div>
+      <div class="strat-desc">1-class det + 356-class cls</div>
+      <div class="strat-detail">Det: -- | Cls: --</div>
+    </div>
+  </div>
+  <div class="info-box">
+    <strong>Scoring:</strong> 70% detection mAP@0.5 + 30% classification mAP@0.5<br>
+    <strong>Neste steg:</strong> Feature matching klassifisering (crop deteksjoner + match mot referansebilder med EfficientNet)
+  </div>
+</div>
+
+<!-- Charts -->
+<div class="grid">
+  <div class="section">
+    <h3>mAP@0.5 — Alle modeller</h3>
+    <canvas id="mapChart"></canvas>
+  </div>
+  <div class="section">
+    <h3>Loss — Alle modeller</h3>
+    <canvas id="lossChart"></canvas>
+  </div>
+</div>
+
+<div class="notification" id="notification">TRENING FERDIG!</div>
+
+<script>
+try {
+  const s = document.createElement('script');
+  s.src = 'https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js';
+  s.onload = () => { window.chartReady = true; };
+  document.head.appendChild(s);
+} catch(e) {}
+</script>
+<script>
+let soundEnabled = true;
+let finishedRuns = new Set();
+let mapChart = null, lossChart = null;
+
+// Run display config
+const RUN_CONFIG = {
+  multiclass:       { color: '#a855f7', label: 'MC 30ep',   group: 'original' },
+  detection:        { color: '#3b82f6', label: 'Det 50ep',  group: 'original' },
+  multiclass_100ep: { color: '#f97316', label: 'MC 100ep',  group: 'overnight' },
+  detection_100ep:  { color: '#06b6d4', label: 'Det 100ep', group: 'overnight' },
+};
+
+function showTab(tab) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('runs_overnight').style.display = tab === 'overnight' ? 'grid' : 'none';
+  document.getElementById('runs_original').style.display = tab === 'original' ? 'grid' : 'none';
+}
+
+function toggleSound() {
+  soundEnabled = !soundEnabled;
+  document.getElementById('soundBtn').textContent = `Lyd: ${soundEnabled ? 'PA' : 'AV'}`;
+}
+
+function playSound() {
+  if (!soundEnabled) return;
+  try {
+    const ctx = new AudioContext();
+    [523,659,784,1047].forEach((f,i) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.frequency.value = f; o.type = 'sine';
+      g.gain.setValueAtTime(0.12, ctx.currentTime+i*0.15);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+i*0.15+0.4);
+      o.start(ctx.currentTime+i*0.15); o.stop(ctx.currentTime+i*0.15+0.4);
+    });
+  } catch(e){}
+}
+
+function fmt(v) { return (typeof v==='number') ? v.toFixed(4) : '--'; }
+
+function buildRunCard(key, run) {
+  const cfg = RUN_CONFIG[key] || { color: '#888', label: key, group: 'original' };
+  const m = run.best_metrics || {};
+  const pct = run.total_epochs > 0 ? (run.current_epoch / run.total_epochs * 100) : 0;
+  const eta = run.eta ? `~${run.eta.avg_epoch_seconds}s/ep | Ferdig ~${run.eta.estimated_finish}` : (run.training_finished ? 'Fullfort!' : 'Venter...');
+
+  const epochs = run.epochs || [];
+  let logHtml = '';
+  [...epochs].slice(-15).reverse().forEach(row => {
+    const fk = (sub) => { const k=Object.keys(row).find(k=>k.toLowerCase().includes(sub)); return k?fmt(row[k]):'--'; };
+    const ep = Object.keys(row).find(k=>k.toLowerCase().includes('epoch'));
+    logHtml += `<div class="epoch-row"><span>${ep?Math.round(row[ep])+1:'?'}</span><span>${fk('box_loss')}</span><span>${fk('cls_loss')}</span><span style="color:var(--green)">${fk('map50(')}</span><span style="color:var(--cyan)">${fk('map50-95')}</span></div>`;
+  });
+
+  return `
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span class="run-badge" style="background:${cfg.color}">${cfg.label}</span>
+        <span style="font-size:0.85rem;font-weight:600">${run.display_name || key}</span>
+      </div>
+      <div class="big">${run.current_epoch}/${run.total_epochs}</div>
+      <div class="progress-bg"><div class="progress-fill" style="width:${pct}%;background:linear-gradient(90deg,${cfg.color},${cfg.color}88)"></div></div>
+      <div class="sub">${eta}</div>
+      <div style="margin-top:10px">
+        <div class="metric-row"><span class="metric-label">Best mAP@0.5</span><span class="metric-val" style="color:var(--green)">${fmt(m.best_mAP50)}</span></div>
+        <div class="metric-row"><span class="metric-label">Best mAP@0.5:0.95</span><span class="metric-val" style="color:var(--cyan)">${fmt(m.best_mAP50_95)}</span></div>
+        <div class="metric-row"><span class="metric-label">Current Precision</span><span class="metric-val">${fmt(m.current_precision)}</span></div>
+        <div class="metric-row"><span class="metric-label">Current Recall</span><span class="metric-val">${fmt(m.current_recall)}</span></div>
+        <div class="metric-row"><span class="metric-label">Weights</span><span class="metric-val">${run.weights_exist?.best?'best.pt OK':'--'}</span></div>
+      </div>
+      <div style="margin-top:10px">
+        <div style="font-size:0.7rem;color:var(--muted);margin-bottom:4px">SISTE EPOCHS</div>
+        <div class="epoch-log">
+          <div class="epoch-row hdr"><span>Ep</span><span>BoxL</span><span>ClsL</span><span>mAP50</span><span>50-95</span></div>
+          ${logHtml}
+        </div>
+      </div>
+    </div>`;
+}
+
+function updateStrategies(scores) {
+  if (!scores) return;
+  ['a','b','c'].forEach(s => {
+    const st = scores['strategy_'+s];
+    const el = document.getElementById('strat_'+s);
+    if (!st || !el) return;
+    el.querySelector('.strat-score').textContent = st.score > 0 ? st.score.toFixed(1) : '--';
+    el.querySelector('.strat-detail').textContent = `Det: ${st.det > 0 ? (st.det*100).toFixed(1)+'%' : '--'} | Cls: ${st.cls > 0 ? (st.cls*100).toFixed(1)+'%' : '--'}`;
+    el.classList.toggle('recommended', scores.recommended === 'strategy_'+s);
+    const existing = el.querySelector('.strat-badge');
+    if (existing) existing.remove();
+    if (scores.recommended === 'strategy_'+s && st.score > 0) {
+      const badge = document.createElement('span');
+      badge.className = 'strat-badge';
+      badge.textContent = 'ANBEFALT';
+      el.querySelector('.strat-name').appendChild(badge);
+    }
+  });
+}
+
+function updateCharts(data) {
+  if (!window.chartReady) return;
+  const colors = { multiclass:'#a855f7', detection:'#3b82f6', multiclass_100ep:'#f97316', detection_100ep:'#06b6d4' };
+
+  // mAP chart
+  const ctx1 = document.getElementById('mapChart').getContext('2d');
+  if (mapChart) mapChart.destroy();
+  const ds1 = [];
+  for (const [key, run] of Object.entries(data.runs || {})) {
+    if (!run.epochs?.length) continue;
+    const vals = run.epochs.map(e => {
+      const k = Object.keys(e).find(k=>k.toLowerCase().includes('map50('));
+      return k ? e[k] : null;
+    });
+    ds1.push({ label: (RUN_CONFIG[key]?.label || key) + ' mAP50', data: vals, borderColor: colors[key]||'#888', tension:0.3, pointRadius:1 });
+  }
+  const maxLen = Math.max(...Object.values(data.runs||{}).map(r=>(r.epochs||[]).length), 1);
+  mapChart = new Chart(ctx1, {
+    type:'line', data:{ labels:Array.from({length:maxLen},(_,i)=>i+1), datasets:ds1 },
+    options:{ responsive:true, plugins:{legend:{labels:{color:'#71717a',font:{size:10}}}}, scales:{x:{ticks:{color:'#71717a'},grid:{color:'#1a1d27'}},y:{min:0,max:1,ticks:{color:'#71717a'},grid:{color:'#1a1d27'}}} }
+  });
+
+  // Loss chart
+  const ctx2 = document.getElementById('lossChart').getContext('2d');
+  if (lossChart) lossChart.destroy();
+  const ds2 = [];
+  for (const [key, run] of Object.entries(data.runs || {})) {
+    if (!run.epochs?.length) continue;
+    const vals = run.epochs.map(e => {
+      const k = Object.keys(e).find(k=>k.toLowerCase().includes('train/box'));
+      return k ? e[k] : null;
+    });
+    ds2.push({ label: (RUN_CONFIG[key]?.label||key) + ' box', data:vals, borderColor:colors[key]||'#888', tension:0.3, pointRadius:1 });
+  }
+  lossChart = new Chart(ctx2, {
+    type:'line', data:{ labels:Array.from({length:maxLen},(_,i)=>i+1), datasets:ds2 },
+    options:{ responsive:true, plugins:{legend:{labels:{color:'#71717a',font:{size:10}}}}, scales:{x:{ticks:{color:'#71717a'},grid:{color:'#1a1d27'}},y:{ticks:{color:'#71717a'},grid:{color:'#1a1d27'}}} }
+  });
+}
+
+async function refresh() {
+  try {
+    const r = await fetch('/api/status');
+    const data = await r.json();
+    document.getElementById('lastRefresh').textContent = 'Oppdatert: ' + new Date().toLocaleTimeString('no-NO');
+
+    // Build banners
+    const bannersEl = document.getElementById('banners');
+    bannersEl.innerHTML = '';
+    const overnightEl = document.getElementById('runs_overnight');
+    const originalEl = document.getElementById('runs_original');
+    overnightEl.innerHTML = '';
+    originalEl.innerHTML = '';
+
+    for (const [key, run] of Object.entries(data.runs || {})) {
+      const cfg = RUN_CONFIG[key] || { color:'#888', label:key, group:'original' };
+
+      // Banner
+      const cls = run.training_finished ? 'finished' : run.status==='training' ? 'training' : 'waiting';
+      let txt = (run.display_name || key) + ': ';
+      if (run.training_finished) {
+        txt += 'FERDIG! best mAP50=' + fmt(run.best_metrics?.best_mAP50);
+      } else if (run.status==='training') {
+        txt += `Epoch ${run.current_epoch}/${run.total_epochs}`;
+        if (run.eta) txt += ` | ETA: ${run.eta.eta_human} (ferdig ~${run.eta.estimated_finish})`;
+      } else {
+        txt += 'Venter...';
+      }
+      bannersEl.innerHTML += `<div class="banner ${cls}"><div class="pulse"></div><span>${txt}</span></div>`;
+
+      // Card
+      const card = buildRunCard(key, run);
+      if (cfg.group === 'overnight') {
+        overnightEl.innerHTML += card;
+      } else {
+        originalEl.innerHTML += card;
+      }
+
+      // Notify
+      if (run.training_finished && !finishedRuns.has(key)) {
+        finishedRuns.add(key);
+        playSound();
+        const notif = document.getElementById('notification');
+        notif.textContent = `${run.display_name || key} FERDIG!`;
+        notif.style.display = 'block';
+        setTimeout(() => notif.style.display='none', 10000);
+        if (Notification.permission==='granted') new Notification('Trening ferdig!', {body:(run.display_name||key)+' er klar.'});
+      }
+    }
+
+    // Title
+    const activeRuns = Object.entries(data.runs||{}).filter(([k,r])=>r.status==='training');
+    if (activeRuns.length > 0) {
+      const parts = activeRuns.map(([k,r]) => `${RUN_CONFIG[k]?.label||k}:${r.current_epoch}/${r.total_epochs}`);
+      document.title = `[${parts.join(' ')}] Trener...`;
+    } else {
+      const allDone = Object.values(data.runs||{}).every(r=>r.training_finished || r.status==='waiting');
+      document.title = allDone ? 'ALT FERDIG — NorgesGruppen Monitor' : 'NorgesGruppen — Training Monitor';
+    }
+
+    updateStrategies(data.score_estimates);
+    updateCharts(data);
+  } catch(e) {
+    document.getElementById('lastRefresh').textContent = 'Feil: ' + e.message;
+  }
+}
+
+if ('Notification' in window && Notification.permission==='default') Notification.requestPermission();
+refresh();
+setInterval(refresh, 8000);
+</script>
+</body>
+</html>
