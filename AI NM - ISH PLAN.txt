@@ -1,0 +1,134 @@
+﻿AI NM
+
+
+1. Før kl. 18:00 (Akkurat nå!)
+* Sett opp infrastrukturen: Opprett et tomt Git-repository (som du senere gjør offentlig for å møte kravene i regel 9). Sørg for at du har Node.js/Python eller det språket du foretrekker klart, med nødvendige pakker for WebSockets og API-kall (basert på Pre-game erfaringen).
+* Vipps-verifisering: Gjør dette med en gang (Regel 6). Som reglene sier, gir dette deg høyere rate limits for innsendinger.
+2. Triage ved Kickoff (kl. 18:00)
+* Les alle tre oppgavene: Ikke stup inn i kodingen på Oppgave 1 med en gang.
+* Forstå scoringen: Regel 8 sier at det er et gjennomsnitt av de tre oppgavene, og en poengsum på 0 i en oppgave straffer deg hardt. Å få til noe på alle tre oppgavene er mye bedre enn å perfeksjonere én oppgave.
+* Mat Claude med kontekst: Bruk Claude (Cowork/Projects) og lag et dokument for hver oppgave. Lim inn nøyaktig hvordan API-et fungerer, hva målet er, og hvilke begrensninger som gjelder.
+3. Din arbeidsflyt med Claude Code
+For å få Claude til å være mest mulig effektiv, må du bryte ned problemet i små, testbare biter.
+1. Lokal testing er konge: Pre-game hadde rate limits (f.eks. 60 sek cooldown, maks 40 per time). Hvis hovedkonkurransen har det samme, kan du ikke la Claude teste koden direkte mot live-serveren mens den utvikler. Første oppgave til Claude bør være: "Skriv et mock-API / en lokal simulator basert på disse reglene, slik at vi kan teste logikken vår lokalt uten nettverkskall."
+2. Steg-for-steg:
+   * Steg 1: Be Claude skrive kode som kun kobler til serveren og leser state. Sjekk at det fungerer. Sjekk inn i Git.
+   * Steg 2: Be Claude få boten/systemet til å gjøre en tilfeldig, men gyldig, handling. Sjekk inn i Git.
+   * Steg 3: Be Claude implementere en banal, enkel strategi (f.eks. "gå til nærmeste objekt"). Sjekk inn i Git.
+   * Steg 4: Først nå ber du Claude om å optimalisere logikken (pathfinding, prioritering av ordre, etc.).
+3. Bruk Git aktivt: Hver gang Claude produserer kode som gir deg en poengsum (selv en lav en), commit koden! Når Claude uunngåelig ødelegger alt 3 timer senere fordi den prøvde på en for avansert algoritme, er det gull verdt å kunne rulle tilbake.
+Hva er lurt (Do's)
+* Send inn tidlig og ofte: Få navnet ditt på ledertavlen så fort du har kode som kjører, selv om den er dum. Det fjerner stresset.
+* Bruk tiden på prompts, ikke syntaks: Bruk din mentale energi på å forklare systemarkitekturen og algoritmene i ren tekst til Claude. La Claude håndtere syntaksen.
+* Håndter feil (Error Handling): Be Claude spesifikt om å skrive robust kode som håndterer at serveren kanskje ikke svarer i tide, eller sender uventet data.
+Hva er dumt (Don'ts)
+* Å be om alt på en gang: Prompts som "Her er reglene for NM i AI oppgave 2, skriv en bot som vinner alt" vil feile.
+* Å ignorere Rate Limits (Regel 10.3): Hvis du lar en bot eller Claude spamme serveren i bakgrunnen, risikerer du å bli utestengt for plattformmisbruk.
+* Glemme å sove: Dere har 69 timer. AI-ens kodekvalitet stuper når din evne til å skrive gode prompts og kvalitetssikre koden forsvinner på grunn av søvnmangel.
+
+
+Gemini sa
+Kjempebra! Her er en plan for det du spør om, samt en generell strategiramme for NM:
+Først, la oss ta en titt på Github. Jeg kan ikke direkte "se" på GitHub-kontoen din eller styre den, men jeg kan veilede deg gjennom de viktigste stegene for å få kontroll.
+GitHub-kontroll og oppsett
+1. Opprett et nytt repository:
+   * Gå til GitHub.com og logg inn.
+   * Klikk på '+' tegnet øverst til høyre og velg "New repository".
+   * Gi det et navn, f.eks. nm-ai-2024 eller lignende.
+   * Viktig: Velg "Public" for å oppfylle kravet i Regel 9.
+   * Huk av for "Add a README file" og "Add .gitignore" (velg gjerne en mal for Node, Python eller det språket du bruker). Dette er lurt for å starte ryddig.
+   * Klikk "Create repository".
+2. Klon repositoryet til din lokale maskin:
+   * På den nye GitHub-siden for repositoryet ditt, klikk på den grønne "Code"-knappen.
+   * Velg "HTTPS" og kopier URL-en (f.eks. https://github.com/dittbrukernavn/nm-ai-2024.git).
+   * Åpne terminalen/kommandolinjen på maskinen din.
+   * Naviger til mappen du vil lagre prosjektet i (f.eks. cd ~/Documents/).
+   * Klon repositoryet: git clone https://github.com/dittbrukernavn/nm-ai-2024.git
+   * Gå inn i den nye prosjektmappen: cd nm-ai-2024
+3. Grunnleggende Git-kommandoer du trenger:
+   * git status: Sjekker hvilke filer som er endret/nye.
+   * git add .: Legger til alle endrede og nye filer for commit.
+   * git commit -m "En beskrivende melding om endringen": Lagrer endringene lokalt.
+   * git push origin main: Sender de lokale endringene opp til GitHub. (Om du bruker main eller master som branch-navn, kommer an på oppsettet.)
+   * git pull origin main: Henter ned eventuelle nye endringer fra GitHub (mindre relevant når du jobber alene, men god vane).
+Tips for NM:
+* Commit ofte: Som nevnt tidligere, hver gang du har noe som virker eller en signifikant endring.
+* Klare commit-meldinger: "Fix", "Update" er dårlig. "Oppgave 1: Implementerte basic bevegelse", "Oppgave 2: La til ressurs-prioritering" er bra.
+* Branches: Hvis du vil eksperimentere mye med en strategi uten å ødelegge den fungerende koden, kan du lage en ny branch (git checkout -b min-nye-strategi), jobbe der, og så merge tilbake til main når den fungerer. Men under tidspress kan det være enklere å bare jobbe på main og stole på hyppige commits for å rulle tilbake.
+________________
+
+
+En "plattform" for oversikt og simulering med Claude Code
+Ja, dette er absolutt mulig og en veldig smart strategi for en konkurranse som dette! En lokal "simulator" eller et visualeringsverktøy er gull verdt. Du kan be Claude om å bygge dette.
+Hvorfor en simulator er så viktig:
+* Unngå Rate Limits: Test strategiene dine lokalt uten å slå i taket på serverkall.
+* Raskere tilbakemelding: Umiddelbare resultater på strategiendringer.
+* Bedre forståelse: Visualisering hjelper deg å se hva boten din gjør i sanntid.
+* Debugging: Se nøyaktig hvorfor boten din feiler eller tar dårlige beslutninger.
+Hvordan be Claude Code om å lage dette:
+Her er en steg-for-steg tilnærming for å instruere Claude:
+Del 1: Datamodellen og lokal simulator
+Prompt til Claude:
+"Jeg skal delta i NM i AI. Konkurransen går ut på å utvikle bots som interagerer med et spill-API via WebSockets og HTTP-kall.
+Mål: Jeg trenger at du hjelper meg med å sette opp en lokal simulator/spillmotor for hver av de tre oppgavene som vil bli presentert. Dette vil tillate meg å teste bot-strategier offline, uten å måtte koble til konkurranseservere, og unngå rate limits.
+Jeg vil gi deg de eksakte reglene og API-spesifikasjonene for hver oppgave når de slippes.
+Din første oppgave:
+1. Oppsett: Lag et grunnleggende Node.js (eller Python, hvis du foretrekker det) prosjekt med filstruktur klar for de tre oppgavene.
+2. Felles funksjonalitet: Implementer en felles modul (f.eks. apiClient.js eller api_client.py) som kan håndtere:
+   * Oppkobling til en WebSocket-server (med en mock-URL for nå).
+   * Sending av JSON-meldinger via WebSocket.
+   * Mottak og parsing av JSON-meldinger fra WebSocket.
+   * Generiske HTTP GET/POST-kall (igjen, med mock-URLer).
+   * En placeholder for å bytte mellom "lokal simulator-modus" og "konkurranseserver-modus".
+3. Simulatorkjerne (placeholder): Lag en placeholder-fil for hver oppgave (f.eks. task1_simulator.js, task2_simulator.js, task3_simulator.js). Disse filene skal inneholde:
+   * En funksjon initializeGame(initialState) som setter opp en spilltilstand basert på en gitt starttilstand.
+   * En funksjon applyAction(currentState, action) som tar en spilltilstand og en spillers handling, oppdaterer tilstanden og returnerer den nye tilstanden.
+   * En funksjon getGameState() som returnerer den nåværende spilltilstanden.
+   * En runSimulation(strategyFunction) funksjon som kan kjøre en bot-strategi mot simulatoren over et antall "ticks" eller runder, og returnere sluttresultatet.
+4. Enkel Visualisering (tekstbasert for nå): Implementer en funksjon renderGameState(state) som tar den nåværende spilltilstanden og printer ut en enkel, tekstbasert representasjon til konsollen. Dette er for å raskt få oversikt under testing.
+5. Eksempel: Lag en dummy initialState og et par dummy actions for en generisk "grid-basert ressursinnsamling"-spill for å vise hvordan simulatoren ville fungere.
+Start med Node.js."
+Del 2: Visualisering og UI (etter at simulatoren er satt opp og du har fått de faktiske oppgavene)
+Når du har simulatoren på plass og forstår oppgavene, kan du be Claude om å utvide visualiseringen.
+Prompt til Claude (etter at du har fått oppgave 1 og matet den inn i simulatoren):
+"Flott, simulatoren for oppgave 1 er satt opp. Nå ønsker jeg å forbedre visualiseringen.
+Mål: Lag en enkel web-basert GUI (med HTML, CSS, JavaScript) som kan vise spilltilstanden fra task1_simulator.js i sanntid.
+Krav:
+1. Frontend-oppsett: Bruk en lettvekts-løsning (f.eks. bare en index.html, style.css, script.js fil) som kan serve en lokal webserver (f.eks. ved å bruke serve pakken i Node.js eller Pythons http.server).
+2. Spillbrett: Visualiser spillbrettet (hvis det er grid-basert) ved hjelp av HTML-tabeller, Canvas, eller SVG. Representer spillere, objekter, ressurser, vegger, osv., med forskjellige farger eller ikoner.
+3. Informasjonspanel: Vis viktig informasjon som:
+   * Poengsum
+   * Gjenværende tid/runder
+   * Spillerhelse/ressurser
+   * En logg over de siste handlingene eller hendelsene.
+4. Kontroller: Legg til en enkel "Start/Stopp simulering" knapp, og kanskje en "Steg fremover" knapp for å se en runde om gangen.
+5. Kobling til Simulator: Frontend-en må kunne hente den oppdaterte spilltilstanden fra task1_simulator.js (du kan enten la simulatoren kjøre som en egen server eller modifisere den til å eksponere tilstanden via en enkel API-rute som frontend kan polle/WebSocket).
+Start med en enkel tabell-basert visning for et grid på 10x10 som viser spillere ('P'), vegger ('W') og ressurser ('R')."
+Generell Strategiramme for NM (revidert)
+1. Før Kickoff (nå!):
+   * Få GitHub på plass (klart).
+   * Få en rudimentær simulator/boilerplate fra Claude (begynn med den første prompten over).
+   * Vipps-verifisering.
+   * Drikk vann og ta en pause.
+2. Kickoff (18:00):
+   * Les, les, les! Forstå alle tre oppgavene, poengsystemet, og eventuelle spesifikke begrensninger.
+   * Prioriter: Identifiser hvilken oppgave som er enklest å få en grunnleggende score på. Start der.
+   * Mat Claude: Lim inn fullstendige regler og API-spesifikasjoner for en oppgave om gangen inn i Claude (Cowork/Projects). Be den om å analysere og identifisere viktige variabler, målobjekter, og handlingsmuligheter.
+3. Fase 1: "MVP" (Minimum Viable Product) per oppgave (første 12-24 timer):
+   * Simulator først: Be Claude om å oppdatere simulatoren for den valgte oppgaven med de faktiske API-dataene og reglene.
+   * Kobling til API: Få boten til å koble seg til den ekte API-en og motta data. Verifiser at den leser korrekt.
+   * Dummy-strategi: Implementer en dum, men gyldig strategi (f.eks., tilfeldige trekk, alltid gå rett frem, etc.). Målet er å få en gyldig innsending som gir en ikke-null score.
+   * Commit og Push: Når du har en fungerende MVP, uansett hvor dårlig scoren er, commit og push til GitHub, og send inn! Dette sikrer at du får poeng og fjerner stresset.
+   * Gjenta for alle tre oppgavene: Få noe fungerende på alle tre for å unngå en 0-score på noen.
+4. Fase 2: Iterativ Forbedring (neste 24-48 timer):
+   * Visualisering: Nå kan du be Claude om å bygge ut den web-baserte visualiseringen for oppgaven du jobber med (som beskrevet i del 2 ovenfor).
+   * "Brainstorming" med Claude: Beskriv hva du vil at boten skal oppnå (f.eks. "prioriter å samle gull foran tre, unngå fiender"). La Claude foreslå algoritmer eller deler av kode.
+   * Små steg: Be Claude om å implementere små, testbare forbedringer. F.eks., "legg til pathfinding til nærmeste gullressurs," eller "legg til logikk for å flykte hvis fiender er innenfor X rekkevidde."
+   * Test lokalt: Kjør strategien mot simulatoren din. Bruk visualiseringen til å forstå hvorfor den gjør det den gjør.
+   * Test på server: Når det ser bra ut lokalt, send inn og se hvordan det presterer på konkurranseserveren.
+   * Analysér: Bruk ledertavlen og dine egne logger til å se hva som fungerer og hva som ikke gjør det. Juster deretter.
+5. Fase 3: Optimalisering og Justering (siste 12-24 timer):
+   * Fokuser på den laveste scoren: Bruk den gjenværende tiden på oppgaven der du har lavest poengsum.
+   * Edge cases: Be Claude om å tenke på "edge cases" eller uventede scenarioer (f.eks. "hva skjer hvis det ikke er noen ressurser?", "hvordan håndterer vi det når en annen spiller blokkerer veien?").
+   * Stress-testing: Kjør simulatoren med mange forskjellige starttilstander for å se hvor robust strategien din er.
+Lykke til i NM! Med god planlegging og smart bruk av Claude som din partner, har du et veldig godt utgangspunkt. Spør meg hvis du trenger hjelp med noen av promptene eller Git-kommandoene.
