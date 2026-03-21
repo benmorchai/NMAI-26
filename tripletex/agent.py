@@ -61,7 +61,11 @@ def llm(messages):
 def api(session, base, call):
     method, path = call.get("method", "GET"), call.get("path", "")
     try:
-        r = getattr(session, method.lower())(f"{base}{path}", params=call.get("params"), json=call.get("body"), timeout=15)
+        url = f"{base}{path}"
+        if method == "GET":
+            r = session.get(url, params=call.get("params"), timeout=15)
+        else:
+            r = getattr(session, method.lower())(url, params=call.get("params"), json=call.get("body"), timeout=15)
         log.info(f"  {method} {path}: {r.status_code}")
         data = r.json()
         s = json.dumps(data, ensure_ascii=False)
