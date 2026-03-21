@@ -248,11 +248,42 @@ def learn_from_completed_rounds():
     return result
 
 
+def blend_observation_with_prior(obs_counts, prior, blend_weight=0.3):
+    """
+    Blend empirical observation with learned prior distribution.
+
+    blend_weight controls trust in single observation:
+    - 0.0 = only prior (ignore observations)
+    - 1.0 = only observations (ignore prior)
+    - 0.3 = 30% observation, 70% prior (good for single obs)
+
+    With N observations, trust increases: effective_weight = 1 - (1-blend_weight)^N
+    """
+    n_obs = sum(obs_counts)
+    if n_obs == 0:
+        return list(prior)
+
+    # More observations = more trust in empirical data
+    # With 1 obs: weight=0.3, with 2: 0.51, with 3: 0.66, with 5: 0.83
+    effective_weight = 1.0 - (1.0 - blend_weight) ** n_obs
+
+    obs_dist = [c / n_obs for c in obs_counts]
+    blended = [
+        effective_weight * obs_dist[i] + (1 - effective_weight) * prior[i]
+        for i in range(NUM_CLASSES)
+    ]
+    return blended
+
+
 def build_prediction_from_observations(
     initial_state, observations, learned_dists, map_w, map_h
 ):
     """
-    Build prediction combining observations and learned distributions.
+    Build prediction by BLENDING observations with learned prior distributions.
+
+    IMPORTANT: Single observations are noisy (stochastic simulation).
+    We blend them with ground-truth-learned priors to avoid overconfident
+    near-one-hot predictions that get punished by KL divergence.
 
     observations: dict of (x, y) -> list of class counts from simulate queries
     learned_dists: dict of terrain_code -> [prob_0, ..., prob_5]
@@ -263,23 +294,23 @@ def build_prediction_from_observations(
     for y in range(map_h):
         row = []
         for x in range(map_w):
-            cell_key = (x, y)
+            cell_type = grid[y][x]
+            cell_str = str(cell_type)
 
-            if cell_key in observations and sum(observations[cell_key]) > 0:
-                # We have observations for this cell - use empirical distribution
-                counts = observations[cell_key]
-                total = sum(counts)
-                probs = [c / total for c in counts]
+            # Get prior from learned distributions (ground truth from completed rounds)
+            if cell_str in learned_dists:
+                prior = list(learned_dists[cell_str])
             else:
-                # No observations - use learned distributions from ground truth
-                cell_type = grid[y][x]
-                cell_str = str(cell_type)
+                prior = get_baseline_probs(cell_type, initial_state, x, y)
 
-                if cell_str in learned_dists:
-                    probs = list(learned_dists[cell_str])
-                else:
-                    # Fallback: baseline heuristics
-                    probs = get_baseline_probs(cell_type, initial_state, x, y)
+            # Blend with observation if available
+            cell_key = (x, y)
+            if cell_key in observations and sum(observations[cell_key]) > 0:
+                probs = blend_observation_with_prior(
+                    observations[cell_key], prior, blend_weight=0.3
+                )
+            else:
+                probs = prior
 
             # Apply floor and normalize
             probs = normalize_with_floor(probs)
