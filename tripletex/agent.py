@@ -56,7 +56,10 @@ COMMON TASK PATTERNS:
 7. Reverse voucher → PUT /ledger/voucher/{id}/:reverse {date}
 8. Journal entry → GET /ledger/account?number=XXXX → POST /ledger/voucher
 9. Supplier invoice → POST /incomingInvoice (or POST /ledger/voucher with supplier posting)
-10. Salary → POST /salary/transaction {employee:{id}, date, count, rate, salaryType:{id}}
+10. Salary/Payroll → The salary API requires a salary module. Try POST /salary/transaction {date, year, month} ONCE.
+  If it fails (403/422), IMMEDIATELY fall back to POST /ledger/voucher:
+  Debit account 5000 (Lønn) for base salary, debit 5000 again for bonus, credit account 2930 (Skyldig lønn) for negative total.
+  Do NOT retry /salary/transaction more than once.
 11. Travel expense → GET /travelExpense/costCategory → GET /travelExpense/paymentType → POST /travelExpense → POST /travelExpense/cost + /perDiemCompensation
   * ALWAYS GET costCategory and paymentType FIRST — IDs vary per environment, NEVER guess them
 12. Employment → POST /employee/employment {employee:{id}, startDate, employmentType}
@@ -99,9 +102,9 @@ POST endpoints (create):
   * PREFERRED method: Create order first, then POST /invoice (more reliable than PUT /order/:invoice)
 - POST /ledger/voucher — EXAMPLE of a correct supplier invoice voucher (9100 NOK incl 25% VAT):
   {"date":"2026-03-22", "description":"Invoice from Supplier X", "postings":[
-    {"row":1, "account":{"id":ACC_6300_ID}, "amount":7280, "amountCurrency":7280, "description":"Office services"},
-    {"row":2, "account":{"id":ACC_2710_ID}, "amount":1820, "amountCurrency":1820, "description":"Input VAT 25%"},
-    {"row":3, "account":{"id":ACC_2400_ID}, "supplier":{"id":SUPP_ID}, "amount":-9100, "amountCurrency":-9100, "description":"Accounts payable"}
+    {"row":1, "account":{"id":ACC_6300_ID}, "amount":7280, "amountCurrency":7280, "amountGross":7280, "amountGrossCurrency":7280, "description":"Office services"},
+    {"row":2, "account":{"id":ACC_2710_ID}, "amount":1820, "amountCurrency":1820, "amountGross":1820, "amountGrossCurrency":1820, "description":"Input VAT 25%"},
+    {"row":3, "account":{"id":ACC_2400_ID}, "supplier":{"id":SUPP_ID}, "amount":-9100, "amountCurrency":-9100, "amountGross":-9100, "amountGrossCurrency":-9100, "description":"Accounts payable"}
   ]}
   RULES: Row numbers MUST start from 1 (row 0 is FORBIDDEN — system-generated). Positive=debit, negative=credit. Sum MUST be 0.
   Use account 2710 (not 2700) for input VAT deduction (inngående MVA fradrag).
@@ -138,7 +141,8 @@ def llm(messages):
     try:
         r = http.post("https://openrouter.ai/api/v1/chat/completions",
             headers={"Authorization": f"Bearer {LLM_KEY}", "Content-Type": "application/json"},
-            json={"model": LLM_MODEL, "messages": messages, "temperature": 0, "max_tokens": 4000}, timeout=45)
+            json={"model": LLM_MODEL, "messages": messages, "temperature": 0, "max_tokens": 4000,
+                  "response_format": {"type": "json_object"}}, timeout=45)
         r.raise_for_status()
         txt = r.json()["choices"][0]["message"]["content"]
         log.info(f"  LLM ({len(txt)}c): {txt[:200]}")
