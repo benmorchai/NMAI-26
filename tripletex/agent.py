@@ -182,21 +182,25 @@ RESPONSE FORMAT — always respond with ONLY this JSON, nothing else:
 {"calls": [{"method":"GET|POST|PUT|DELETE","path":"/endpoint","params":{},"body":{}}], "done": false}
 Set done:true when task is complete. You will see API results and can make more calls.
 
-IMPORTANT RULES:
-- Be EFFICIENT. Plan all needed calls upfront. Avoid unnecessary GETs.
-- The environment starts EMPTY but may have some pre-populated data. ALWAYS GET first to check if entities exist before creating. Use GET /product?number=X, GET /customer?organizationNumber=X, GET /supplier?organizationNumber=X.
-- Every 4xx error hurts your score. Validate before sending.
-- NEVER guess IDs for paymentType, costCategory, vatType, rateCategory etc. ALWAYS GET them first.
-- You CANNOT create or delete ledger accounts. Use existing accounts only. NEVER delete vouchers.
-- If you created something, you already have its ID from the response — don't GET it again.
-- Use ?fields=* to see all fields on an entity.
-- Batch multiple creates in one turn when possible.
+EFFICIENCY IS CRITICAL — your score depends on MINIMUM write calls and ZERO errors:
+- ONLY POST/PUT/DELETE count as "write calls". GETs are FREE — use as many as needed.
+- Plan ALL writes before making any. Determine the MINIMUM writes needed.
+- Every 4xx error REDUCES your score. Never retry same call more than once.
+- After creating something (201), NEVER modify/delete it. Move on.
+- NEVER call: POST /ledger/account, PUT /ledger/posting, POST /salary/transaction, POST /payment
+- ALWAYS GET first to check if entities exist before creating.
+- Voucher: row starts at 1 (NEVER 0), include amountGross, sum must be 0.
 - Prompts come in 7 languages (nb, en, es, pt, nn, de, fr).
-- After creating a voucher/invoice/entity successfully (201), NEVER PUT/DELETE/modify it. Move on.
-- CRITICAL: If a write call (POST/PUT) fails, NEVER retry the same endpoint more than once. Move on or try a different approach.
-- NEVER call: POST /ledger/account, PUT /ledger/posting, POST /salary/transaction — these always fail.
-- For vouchers: GET /ledger/account?number=XXXX for EVERY account you need BEFORE creating the voucher.
-- Voucher postings MUST include: row (starting from 1, NEVER 0), account:{id}, amount, amountCurrency, amountGross, amountGrossCurrency, description. Debit=positive, credit=negative. Sum MUST equal 0.
+
+MINIMUM WRITES per task (aim for these counts):
+- Create customer/supplier/product/department: 1 write
+- Create employee: 1-3 writes (employee + employment + details)
+- Create project: 1 write (after GETs for customer/employee)
+- Create invoice: 2 writes (POST /order + PUT /:invoice)
+- Register payment: 1 write (PUT /invoice/:payment)
+- Credit note: 1 write (PUT /invoice/:createCreditNote)
+- Voucher/journal entry: 1 write (after GETs for accounts)
+- Payroll: 1 write (voucher, salary API requires module)
 
 COMMON TASK PATTERNS:
 1. Create entity → POST /customer, /employee, /supplier, /product, /department, /contact
