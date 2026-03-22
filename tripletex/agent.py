@@ -25,7 +25,7 @@ if env_path.exists():
             ENV[k.strip()] = v.strip()
 
 LLM_KEY = ENV.get("OPENROUTER_API_KEY", "")
-LLM_MODEL = "openai/gpt-4o"
+LLM_MODEL = "anthropic/claude-sonnet-4"
 
 SYSTEM = """You are an AI accounting agent. You complete tasks in Tripletex (Norwegian ERP) by making API calls.
 
@@ -43,8 +43,11 @@ IMPORTANT RULES:
 - Use ?fields=* to see all fields on an entity.
 - Batch multiple creates in one turn when possible.
 - Prompts come in 7 languages (nb, en, es, pt, nn, de, fr).
-- After creating a voucher/invoice/entity successfully (201), NEVER PUT/DELETE/modify it or create a "correction". Move on.
-- For vouchers: GET /ledger/account?number=XXXX for EVERY account you need BEFORE creating the voucher. Never reuse IDs from a previous response or the account list — always verify.
+- After creating a voucher/invoice/entity successfully (201), NEVER PUT/DELETE/modify it. Move on.
+- CRITICAL: If a write call (POST/PUT) fails, NEVER retry the same endpoint more than once. Move on or try a different approach.
+- NEVER call: POST /ledger/account, PUT /ledger/posting, POST /salary/transaction — these always fail.
+- For vouchers: GET /ledger/account?number=XXXX for EVERY account you need BEFORE creating the voucher.
+- Voucher postings MUST include: row (starting from 1, NEVER 0), account:{id}, amount, amountCurrency, amountGross, amountGrossCurrency, description. Debit=positive, credit=negative. Sum MUST equal 0.
 
 COMMON TASK PATTERNS:
 1. Create entity → POST /customer, /employee, /supplier, /product, /department, /contact
@@ -88,7 +91,8 @@ POST endpoints (create):
   * MUST include dateOfBirth — required for creating employment later
 - POST /employee/employment {employee:{id:X}, startDate:"YYYY-MM-DD"}
   * Employee MUST have dateOfBirth set or this will fail with 422
-  * After creating, use POST /employee/employment/details for salary/percentage
+- POST /employee/employment/details {employment:{id:EMPLOYMENT_ID}, date:"YYYY-MM-DD", employmentType:"ORDINARY", remunerationType:"MONTHLY_WAGE", workingHoursScheme:"NOT_SHIFT", percentageOfFullTimeEquivalent:100, annualSalary:N}
+  * Use occupationCode:{id:X} if task specifies one — GET /employee/employment/occupationCode to find ID
 - POST /supplier {name, email?, organizationNumber?}
 - POST /product {name, number?, priceExcludingVatCurrency?, vatType?:{id:X}, description?}
   * If VAT rate is mentioned: GET /ledger/vatType first to find correct ID
@@ -99,7 +103,8 @@ POST endpoints (create):
   * MUST include projectManager — use existing employee ID
 - POST /order {customer:{id:X}, orderDate:"YYYY-MM-DD", deliveryDate:"YYYY-MM-DD", orderLines:[{description, count, unitPriceExcludingVatCurrency}]}
 - POST /invoice {invoiceDate:"YYYY-MM-DD", invoiceDueDate:"YYYY-MM-DD", customer:{id:X}, orders:[{id:ORDER_ID}]}
-  * PREFERRED method: Create order first, then POST /invoice (more reliable than PUT /order/:invoice)
+  * Create order FIRST in one turn, then POST /invoice in the NEXT turn (not same turn).
+  * If POST /invoice fails, IMMEDIATELY fall back to PUT /order/{id}/:invoice?invoiceDate=YYYY-MM-DD&sendToCustomer=false
 - POST /ledger/voucher — EXAMPLE of a correct supplier invoice voucher (9100 NOK incl 25% VAT):
   {"date":"2026-03-22", "description":"Invoice from Supplier X", "postings":[
     {"row":1, "account":{"id":ACC_6300_ID}, "amount":7280, "amountCurrency":7280, "amountGross":7280, "amountGrossCurrency":7280, "description":"Office services"},
@@ -111,7 +116,9 @@ POST endpoints (create):
   For account 1500: add customer:{id:X}. For account 2400: add supplier:{id:X}.
   GET /ledger/account?number=XXXX to find each account ID before creating voucher.
 - POST /activity {name, number, activityType:"PROJECT_GENERAL_ACTIVITY"}
-- POST /project/projectActivity {activity:{id:X}, project:{id:Y}}
+- POST /project/projectActivity {activity:{id:X}, project:{id:Y}} — ALWAYS link activities to projects
+- POST /ledger/accountingDimensionName {dimensionName, active:true} — create custom dimension
+- POST /ledger/accountingDimensionValue {displayName, number, active:true, showInVoucherRegistration:true} — add values to dimension
 - POST /timesheet/entry {employee:{id:X}, project:{id:Y}, activity:{id:Z}, date:"YYYY-MM-DD", hours:N}
 
 PUT endpoints (update/actions):
@@ -145,7 +152,7 @@ def llm(messages):
                   "response_format": {"type": "json_object"}}, timeout=45)
         r.raise_for_status()
         txt = r.json()["choices"][0]["message"]["content"]
-        log.info(f"  LLM ({len(txt)}c): {txt[:200]}")
+        log.info(f"  LLM ({len(txt)}c): {txt[:500]}")
         for i, ch in enumerate(txt):
             if ch == '{':
                 depth, j = 0, i
@@ -165,11 +172,21 @@ def api(session, base, call):
     method, path = call.get("method", "GET"), call.get("path", "")
     try:
         url = f"{base}{path}"
+        # Fix voucher postings: ensure amountGross is always set
+        if method == "POST" and "voucher" in path:
+            body = call.get("body", {})
+            for p in body.get("postings", []):
+                if "amountGross" not in p and "amount" in p:
+                    p["amountGross"] = p["amount"]
+                if "amountGrossCurrency" not in p and "amountCurrency" in p:
+                    p["amountGrossCurrency"] = p["amountCurrency"]
         if method == "GET":
             r = session.get(url, params=call.get("params"), timeout=15)
         else:
             r = getattr(session, method.lower())(url, params=call.get("params"), json=call.get("body"), timeout=15)
         log.info(f"  {method} {path}: {r.status_code}")
+        if r.status_code >= 400:
+            log.error(f"    ERROR: {r.text[:300]}")
         data = r.json()
         s = json.dumps(data, ensure_ascii=False)
         if len(s) > 2000 and "values" in data:
