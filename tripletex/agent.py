@@ -35,7 +35,10 @@ Set done:true when task is complete. You will see API results and can make more 
 
 IMPORTANT RULES:
 - Be EFFICIENT. Plan all needed calls upfront. Avoid unnecessary GETs.
+- The Tripletex environment may be EMPTY. If entities don't exist, CREATE them. Don't waste turns searching.
 - Every 4xx error hurts your score. Validate before sending.
+- NEVER guess IDs for paymentType, costCategory, vatType, rateCategory etc. ALWAYS GET them first.
+- You CANNOT create or delete ledger accounts. Use existing accounts only. NEVER delete vouchers.
 - If you created something, you already have its ID from the response — don't GET it again.
 - Use ?fields=* to see all fields on an entity.
 - Batch multiple creates in one turn when possible.
@@ -43,11 +46,19 @@ IMPORTANT RULES:
 
 COMMON TASK PATTERNS:
 1. Create entity → POST /customer, /employee, /supplier, /product, /department, /contact
-2. Create invoice → GET /customer → POST /order → POST /invoice
-3. Modify entity → GET /entity → PUT /entity/{id}
-4. Delete/reverse → GET /entity → DELETE /entity/{id}
-5. Register payment → POST /customer → POST /invoice → POST /payment
-6. Journal entry → GET /ledger/account → POST /ledger/voucher
+2. Create invoice → GET /customer → POST /order → POST /invoice (or PUT /order/{id}/:invoice)
+3. Register payment on invoice → PUT /invoice/{id}/:payment {paymentDate, paymentTypeId, paidAmount, paidAmountCurrency}
+4. Credit note → PUT /invoice/{id}/:createCreditNote {date, comment?}
+5. Send reminder → PUT /invoice/{id}/:createReminder
+6. Send invoice → PUT /invoice/{id}/:send {method:"EMAIL", emailRecipient?}
+7. Reverse voucher → PUT /ledger/voucher/{id}/:reverse {date}
+8. Journal entry → GET /ledger/account?number=XXXX → POST /ledger/voucher
+9. Supplier invoice → POST /incomingInvoice (or POST /ledger/voucher with supplier posting)
+10. Salary → POST /salary/transaction {employee:{id}, date, count, rate, salaryType:{id}}
+11. Travel expense → GET /travelExpense/costCategory → GET /travelExpense/paymentType → POST /travelExpense → POST /travelExpense/cost + /perDiemCompensation
+  * ALWAYS GET costCategory and paymentType FIRST — IDs vary per environment, NEVER guess them
+12. Employment → POST /employee/employment {employee:{id}, startDate, employmentType}
+NEVER use POST /payment — it does not exist.
 
 API REFERENCE:
 
@@ -58,9 +69,9 @@ GET endpoints (search/list):
 - GET /product?name=X&number=X&count=10
 - GET /department?count=50
 - GET /project?count=50
-- GET /invoice?customerId=X&invoiceDateFrom=YYYY-MM-DD&invoiceDateTo=YYYY-MM-DD
+- GET /invoice?customerId=X&invoiceDateFrom=YYYY-MM-DD&invoiceDateTo=YYYY-MM-DD (BOTH date params REQUIRED or you get 422)
 - GET /order?customerId=X&orderDateFrom=YYYY-MM-DD&orderDateTo=YYYY-MM-DD
-- GET /ledger/account?count=500 (get account IDs for vouchers)
+- GET /ledger/account?number=XXXX to find a specific account by number (e.g. number=5000 for salary, number=1500 for receivables, number=2400 for payables)
 - GET /ledger/posting?dateFrom=X&dateTo=Y&count=1000
 - GET /activity?count=50
 All GET responses: {"values": [...], "fullResultSize": N}
@@ -79,7 +90,7 @@ POST endpoints (create):
   * MUST include projectManager — use existing employee ID
 - POST /order {customer:{id:X}, orderDate:"YYYY-MM-DD", deliveryDate:"YYYY-MM-DD", orderLines:[{description, count, unitPriceExcludingVatCurrency}]}
 - POST /invoice {invoiceDate:"YYYY-MM-DD", invoiceDueDate:"YYYY-MM-DD", customer:{id:X}, orders:[{id:ORDER_ID}]}
-  * Create order first, then invoice it with POST /invoice
+  * PREFERRED method: Create order first, then POST /invoice (more reliable than PUT /order/:invoice)
 - POST /ledger/voucher {date:"YYYY-MM-DD", description, postings:[{row:1, account:{id:ACCT_ID}, amount:N, amountCurrency:N, amountGross:N, amountGrossCurrency:N, description}]}
   * Positive amount = debit, negative = credit. MUST balance to 0.
   * For account 1500 (receivables): add customer:{id:X} to posting
@@ -88,8 +99,14 @@ POST endpoints (create):
 - POST /project/projectActivity {activity:{id:X}, project:{id:Y}}
 - POST /timesheet/entry {employee:{id:X}, project:{id:Y}, activity:{id:Z}, date:"YYYY-MM-DD", hours:N}
 
-PUT endpoints (update):
-- PUT /order/{id}/:invoice?invoiceDate=YYYY-MM-DD&sendToCustomer=true (alternative to POST /invoice)
+PUT endpoints (update/actions):
+- PUT /order/{id}/:invoice?invoiceDate=YYYY-MM-DD&sendToCustomer=true (fallback if POST /invoice fails)
+- PUT /invoice/{id}/:payment {paymentDate:"YYYY-MM-DD", paymentTypeId:N, paidAmount:N, paidAmountCurrency:N}
+  * GET /invoice/paymentType FIRST to find valid paymentTypeId (IDs vary per environment)
+- PUT /invoice/{id}/:createCreditNote {date:"YYYY-MM-DD", comment?}
+- PUT /invoice/{id}/:createReminder
+- PUT /invoice/{id}/:send {method:"EMAIL", emailRecipient?}
+- PUT /ledger/voucher/{id}/:reverse {date:"YYYY-MM-DD"}
 - PUT /customer/{id}, PUT /employee/{id}, PUT /project/{id} etc.
 
 All POST/PUT responses: {"value": {created/updated entity with "id" field}}
@@ -172,13 +189,34 @@ async def solve(request: Request):
     session.auth = ("0", token)
     session.headers["Content-Type"] = "application/json"
 
+    # Pre-fetch accounts so LLM has them immediately
+    acct_summary = ""
+    try:
+        r = session.get(f"{base_url}/ledger/account", params={"count": 1000}, timeout=10)
+        if r.status_code == 200:
+            accts = r.json().get("values", [])
+            lines = [f"{a.get('number','?')}:{a.get('name','?')} (id={a.get('id')})" for a in accts if a.get('number')]
+            acct_summary = "\n".join(lines[:200])
+    except:
+        pass
+
     # Build user message with prompt + decoded files
-    user_msg = f"Task:\n{prompt}"
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    user_msg = f"Today's date: {today}\n\nTask:\n{prompt}"
+    if acct_summary:
+        user_msg += f"\n\nAVAILABLE LEDGER ACCOUNTS (number:name id):\n{acct_summary}"
     for f in files[:3]:
         fname = f.get("filename", "unknown")
         try:
-            decoded = base64.b64decode(f.get("content_base64", "")).decode("utf-8", errors="replace")
-            user_msg += f"\n\nFile '{fname}':\n{decoded[:3000]}"
+            raw = base64.b64decode(f.get("content_base64", ""))
+            if fname.lower().endswith(".pdf"):
+                import io, PyPDF2
+                reader = PyPDF2.PdfReader(io.BytesIO(raw))
+                text = "\n".join(page.extract_text() or "" for page in reader.pages)
+                user_msg += f"\n\nFile '{fname}' (PDF text):\n{text[:3000]}"
+            else:
+                decoded = raw.decode("utf-8", errors="replace")
+                user_msg += f"\n\nFile '{fname}':\n{decoded[:3000]}"
         except:
             pass
 
