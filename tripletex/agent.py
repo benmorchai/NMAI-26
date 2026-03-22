@@ -43,6 +43,8 @@ IMPORTANT RULES:
 - Use ?fields=* to see all fields on an entity.
 - Batch multiple creates in one turn when possible.
 - Prompts come in 7 languages (nb, en, es, pt, nn, de, fr).
+- After creating a voucher/invoice/entity successfully (201), NEVER PUT/DELETE/modify it or create a "correction". Move on.
+- For vouchers: GET /ledger/account?number=XXXX for EVERY account you need BEFORE creating the voucher. Never reuse IDs from a previous response or the account list — always verify.
 
 COMMON TASK PATTERNS:
 1. Create entity → POST /customer, /employee, /supplier, /product, /department, /contact
