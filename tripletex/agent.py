@@ -25,7 +25,7 @@ if env_path.exists():
             ENV[k.strip()] = v.strip()
 
 LLM_KEY = ENV.get("OPENROUTER_API_KEY", "")
-LLM_MODEL = "anthropic/claude-sonnet-4"
+LLM_MODEL = "openai/gpt-4o"
 
 SYSTEM = """You are an AI accounting agent. You complete tasks in Tripletex (Norwegian ERP) by making API calls.
 
@@ -113,8 +113,9 @@ POST endpoints (create):
 
 PUT endpoints (update/actions):
 - PUT /order/{id}/:invoice?invoiceDate=YYYY-MM-DD&sendToCustomer=true (fallback if POST /invoice fails)
-- PUT /invoice/{id}/:payment {paymentDate:"YYYY-MM-DD", paymentTypeId:N, paidAmount:N, paidAmountCurrency:N}
+- PUT /invoice/{id}/:payment — use QUERY PARAMS not body: ?paymentDate=YYYY-MM-DD&paymentTypeId=N&paidAmount=N&paidAmountCurrency=N
   * GET /invoice/paymentType FIRST to find valid paymentTypeId (IDs vary per environment)
+  * Send ALL payment fields as params:{}, NOT body:{}
 - PUT /invoice/{id}/:createCreditNote {date:"YYYY-MM-DD", comment?}
 - PUT /invoice/{id}/:createReminder
 - PUT /invoice/{id}/:send {method:"EMAIL", emailRecipient?}
