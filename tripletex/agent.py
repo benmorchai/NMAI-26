@@ -97,11 +97,11 @@ POST endpoints (create):
   * PREFERRED method: Create order first, then POST /invoice (more reliable than PUT /order/:invoice)
 - POST /ledger/voucher — EXAMPLE of a correct supplier invoice voucher (9100 NOK incl 25% VAT):
   {"date":"2026-03-22", "description":"Invoice from Supplier X", "postings":[
-    {"row":0, "account":{"id":ACC_6300_ID}, "amount":7280, "amountCurrency":7280, "amountGross":7280, "amountGrossCurrency":7280, "description":"Office services"},
-    {"row":1, "account":{"id":ACC_2710_ID}, "amount":1820, "amountCurrency":1820, "amountGross":1820, "amountGrossCurrency":1820, "description":"Input VAT 25%"},
-    {"row":2, "account":{"id":ACC_2400_ID}, "supplier":{"id":SUPP_ID}, "amount":-9100, "amountCurrency":-9100, "amountGross":-9100, "amountGrossCurrency":-9100, "description":"Accounts payable"}
+    {"row":1, "account":{"id":ACC_6300_ID}, "amount":7280, "amountCurrency":7280, "description":"Office services"},
+    {"row":2, "account":{"id":ACC_2710_ID}, "amount":1820, "amountCurrency":1820, "description":"Input VAT 25%"},
+    {"row":3, "account":{"id":ACC_2400_ID}, "supplier":{"id":SUPP_ID}, "amount":-9100, "amountCurrency":-9100, "description":"Accounts payable"}
   ]}
-  RULES: Positive=debit, negative=credit. Sum of all amounts MUST be 0.
+  RULES: Row numbers MUST start from 1 (row 0 is FORBIDDEN — system-generated). Positive=debit, negative=credit. Sum MUST be 0.
   Use account 2710 (not 2700) for input VAT deduction (inngående MVA fradrag).
   For account 1500: add customer:{id:X}. For account 2400: add supplier:{id:X}.
   GET /ledger/account?number=XXXX to find each account ID before creating voucher.
