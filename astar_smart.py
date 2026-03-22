@@ -248,7 +248,7 @@ def learn_from_completed_rounds():
     return result
 
 
-def blend_observation_with_prior(obs_counts, prior, blend_weight=0.3):
+def blend_observation_with_prior(obs_counts, prior, blend_weight=0.15):
     """
     Blend empirical observation with learned prior distribution.
 
@@ -307,7 +307,7 @@ def build_prediction_from_observations(
             cell_key = (x, y)
             if cell_key in observations and sum(observations[cell_key]) > 0:
                 probs = blend_observation_with_prior(
-                    observations[cell_key], prior, blend_weight=0.3
+                    observations[cell_key], prior, blend_weight=0.15
                 )
             else:
                 probs = prior
