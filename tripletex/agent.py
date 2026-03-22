@@ -78,8 +78,12 @@ All GET responses: {"values": [...], "fullResultSize": N}
 
 POST endpoints (create):
 - POST /customer {name, isCustomer:true, email?, organizationNumber?, phoneNumber?, postalAddress?:{addressLine1,postalCode,city}}
-- POST /employee {firstName, lastName, userType:"NO_ACCESS", department:{id:X}, email?, dateOfBirth?:"YYYY-MM-DD"}
+- POST /employee {firstName, lastName, userType:"NO_ACCESS", department:{id:X}, email?, dateOfBirth:"YYYY-MM-DD"}
   * MUST include department — GET /department first to find ID
+  * MUST include dateOfBirth — required for creating employment later
+- POST /employee/employment {employee:{id:X}, startDate:"YYYY-MM-DD"}
+  * Employee MUST have dateOfBirth set or this will fail with 422
+  * After creating, use POST /employee/employment/details for salary/percentage
 - POST /supplier {name, email?, organizationNumber?}
 - POST /product {name, number?, priceExcludingVatCurrency?, vatType?:{id:X}, description?}
   * If VAT rate is mentioned: GET /ledger/vatType first to find correct ID
@@ -91,10 +95,16 @@ POST endpoints (create):
 - POST /order {customer:{id:X}, orderDate:"YYYY-MM-DD", deliveryDate:"YYYY-MM-DD", orderLines:[{description, count, unitPriceExcludingVatCurrency}]}
 - POST /invoice {invoiceDate:"YYYY-MM-DD", invoiceDueDate:"YYYY-MM-DD", customer:{id:X}, orders:[{id:ORDER_ID}]}
   * PREFERRED method: Create order first, then POST /invoice (more reliable than PUT /order/:invoice)
-- POST /ledger/voucher {date:"YYYY-MM-DD", description, postings:[{row:1, account:{id:ACCT_ID}, amount:N, amountCurrency:N, amountGross:N, amountGrossCurrency:N, description}]}
-  * Positive amount = debit, negative = credit. MUST balance to 0.
-  * For account 1500 (receivables): add customer:{id:X} to posting
-  * For account 2400 (payables): add supplier:{id:X} to posting
+- POST /ledger/voucher — EXAMPLE of a correct supplier invoice voucher (9100 NOK incl 25% VAT):
+  {"date":"2026-03-22", "description":"Invoice from Supplier X", "postings":[
+    {"row":0, "account":{"id":ACC_6300_ID}, "amount":7280, "amountCurrency":7280, "amountGross":7280, "amountGrossCurrency":7280, "description":"Office services"},
+    {"row":1, "account":{"id":ACC_2710_ID}, "amount":1820, "amountCurrency":1820, "amountGross":1820, "amountGrossCurrency":1820, "description":"Input VAT 25%"},
+    {"row":2, "account":{"id":ACC_2400_ID}, "supplier":{"id":SUPP_ID}, "amount":-9100, "amountCurrency":-9100, "amountGross":-9100, "amountGrossCurrency":-9100, "description":"Accounts payable"}
+  ]}
+  RULES: Positive=debit, negative=credit. Sum of all amounts MUST be 0.
+  Use account 2710 (not 2700) for input VAT deduction (inngående MVA fradrag).
+  For account 1500: add customer:{id:X}. For account 2400: add supplier:{id:X}.
+  GET /ledger/account?number=XXXX to find each account ID before creating voucher.
 - POST /activity {name, number, activityType:"PROJECT_GENERAL_ACTIVITY"}
 - POST /project/projectActivity {activity:{id:X}, project:{id:Y}}
 - POST /timesheet/entry {employee:{id:X}, project:{id:Y}, activity:{id:Z}, date:"YYYY-MM-DD", hours:N}
