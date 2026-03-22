@@ -16,6 +16,34 @@ def evt(t, d, tid=None):
     EVENTS.append({"ts": datetime.utcnow().isoformat(), "type": t, "detail": str(d)[:500], "task_id": tid})
     if len(EVENTS) > 500: EVENTS.pop(0)
 
+# Memory: learn from errors across runs
+MEMORY_FILE = Path(__file__).parent / "memory.json"
+def load_memory():
+    if MEMORY_FILE.exists():
+        try: return json.loads(MEMORY_FILE.read_text())
+        except: pass
+    return {"lessons": []}
+
+def save_lesson(error_msg, fix):
+    mem = load_memory()
+    # Don't duplicate
+    for l in mem["lessons"]:
+        if l["error"] == error_msg:
+            return
+    mem["lessons"].append({"error": error_msg, "fix": fix, "ts": datetime.utcnow().isoformat()})
+    # Keep last 50 lessons
+    mem["lessons"] = mem["lessons"][-50:]
+    MEMORY_FILE.write_text(json.dumps(mem, indent=2, ensure_ascii=False))
+
+def get_lessons_text():
+    mem = load_memory()
+    if not mem["lessons"]:
+        return ""
+    lines = ["LESSONS FROM PREVIOUS RUNS (avoid these mistakes):"]
+    for l in mem["lessons"][-20:]:
+        lines.append(f"- {l['fix']}")
+    return "\n".join(lines)
+
 ENV = {}
 env_path = Path(__file__).parent.parent / ".env"
 if env_path.exists():
@@ -27,6 +55,123 @@ if env_path.exists():
 LLM_KEY = ENV.get("OPENROUTER_API_KEY", "")
 LLM_MODEL = "anthropic/claude-sonnet-4"
 
+# Task type detection — ONLY match when 100% certain. Everything else → generic.
+def detect_task_type(prompt):
+    p = prompt.lower()
+    words = p.split()
+    prompt_len = len(words)
+
+    # Only match SHORT, simple prompts (< 40 words) for Tier 1 recipes
+    # Long/complex prompts → generic (let LLM figure it out)
+    if prompt_len > 50:
+        return "generic"
+
+    # Payroll — very distinct keyword, safe to match
+    if any(w in p for w in ["lønn for", "payroll for", "paie de", "nómina"]):
+        return "payroll"
+
+    # Only match pure "create X" tasks — no multi-step tasks
+    # Must NOT contain invoice/payment/voucher/project lifecycle keywords
+    has_complex = any(w in p for w in ["faktura", "invoice", "betaling", "payment", "voucher", "bilag",
+        "reconcil", "årsoppgj", "year-end", "month-end", "prosjektsyklus", "lifecycle",
+        "kreditnota", "credit note", "reverser", "reverse", "purregebyr", "reminder",
+        "timer", "hours", "horas", "heures", "reiseregning", "travel expense"])
+
+    if not has_complex:
+        # Pure create department (very safe — "trois départements", "three departments")
+        if any(w in p for w in ["avdeling", "department", "départe", "abteilung", "departamento"]):
+            return "create_department"
+        # Pure create supplier
+        if any(w in p for w in ["registrer leverandør", "register.*supplier", "enregistrez.*fournisseur"]):
+            return "create_supplier"
+        # Pure create product (with price/VAT)
+        if any(w in p for w in ["opprett produkt", "create.*product", "créez.*produit", "crea.*producto"]):
+            return "create_product"
+
+    return "generic"
+
+# Recipes: short, specific instructions per task type
+RECIPES = {
+"create_customer": """Create customer. Extract name, organizationNumber, email, phone, address from prompt.
+POST /customer {name, isCustomer:true, organizationNumber?, email?, phoneNumber?, postalAddress?:{addressLine1,postalCode,city}}
+One call, then done:true.""",
+
+"create_supplier": """Create supplier. Extract name, organizationNumber, email from prompt.
+POST /supplier {name, organizationNumber?, email?}
+One call, then done:true.""",
+
+"create_employee": """Create employee:
+1. GET /department?count=50 to find department ID
+2. POST /employee {firstName, lastName, userType:"NO_ACCESS", department:{id:DEPT_ID}, email, dateOfBirth:"YYYY-MM-DD"}
+3. POST /employee/employment {employee:{id:EMP_ID}, startDate:"YYYY-MM-DD"}
+4. POST /employee/employment/details {employment:{id:EMPL_ID}, date:"YYYY-MM-DD", employmentType:"ORDINARY", remunerationType:"MONTHLY_WAGE", workingHoursScheme:"NOT_SHIFT", percentageOfFullTimeEquivalent:100, annualSalary:N}
+If occupation code mentioned: GET /employee/employment/occupationCode?count=50 first, add occupationCode:{id} to details.""",
+
+"create_department": """Create department(s). Extract name(s) from prompt.
+POST /department {name} for each. Batch in one turn. Then done:true.""",
+
+"create_product": """Create product. Extract name, number, price, VAT rate from prompt.
+If VAT mentioned: GET /ledger/vatType first. Common: 25%→id=3, 15%→id=31, 12%→id=32, 0%→id=5
+POST /product {name, number, priceExcludingVatCurrency, vatType:{id:X}}
+One call, then done:true.""",
+
+"create_project": """Create project linked to customer:
+1. GET /customer?organizationNumber=X — if not found, POST /customer
+2. GET /employee?email=X or POST /employee for project manager
+3. POST /project {name, number:"PROJ-001", isInternal:false, projectManager:{id:EMP_ID}, customer:{id:CUST_ID}, startDate:"TODAY"}
+Then done:true.""",
+
+"create_invoice": """Create and send invoice:
+1. GET /customer?organizationNumber=X — if not found, POST /customer
+2. POST /order {customer:{id}, orderDate:"TODAY", deliveryDate:"TODAY", orderLines:[{description, count:1, unitPriceExcludingVatCurrency:AMOUNT}]}
+3. PUT /order/{id}/:invoice?invoiceDate=TODAY&sendToCustomer=true (use query params, NO body)
+If step 3 fails, try POST /invoice {invoiceDate, invoiceDueDate, customer:{id}, orders:[{id}]}""",
+
+"supplier_invoice": """Register supplier invoice as voucher:
+1. GET /supplier?organizationNumber=X — if not found, POST /supplier {name, organizationNumber}
+2. GET /ledger/account?number=EXPENSE (account from prompt, e.g. 6300, 7300)
+3. GET /ledger/account?number=2710 (input VAT)
+4. GET /ledger/account?number=2400 (accounts payable)
+5. Calculate: if amount includes VAT → netto=amount/1.25, mva=amount-netto. If excludes VAT → netto=amount, mva=amount*0.25
+6. POST /ledger/voucher {date:"TODAY", description:"Invoice [number] from [supplier]", postings:[
+   {row:1, account:{id:EXPENSE_ID}, amount:netto, amountCurrency:netto, amountGross:netto, amountGrossCurrency:netto, description:"[expense description]"},
+   {row:2, account:{id:2710_ID}, amount:mva, amountCurrency:mva, amountGross:mva, amountGrossCurrency:mva, description:"Input VAT 25%"},
+   {row:3, account:{id:2400_ID}, supplier:{id:SUPP_ID}, amount:-total, amountCurrency:-total, amountGross:-total, amountGrossCurrency:-total, description:"Accounts payable"}
+]} Sum MUST be 0. Row starts at 1.""",
+
+"payroll": """Payroll — use voucher (salary API requires module):
+1. GET /employee?email=X
+2. GET /ledger/account?number=5000 (salary expense)
+3. GET /ledger/account?number=2930 (salary payable — NOT 2920!)
+4. POST /ledger/voucher {date:"TODAY", description:"Payroll [name]", postings:[
+   {row:1, account:{id:5000_ID}, amount:BASE_SALARY, amountCurrency:BASE_SALARY, amountGross:BASE_SALARY, amountGrossCurrency:BASE_SALARY, description:"Base salary"},
+   {row:2, account:{id:5000_ID}, amount:BONUS, amountCurrency:BONUS, amountGross:BONUS, amountGrossCurrency:BONUS, description:"Bonus"},
+   {row:3, account:{id:2930_ID}, amount:-(BASE+BONUS), amountCurrency:-(BASE+BONUS), amountGross:-(BASE+BONUS), amountGrossCurrency:-(BASE+BONUS), description:"Salary payable"}
+]} Sum MUST be 0.""",
+
+"credit_note": """Credit note for customer invoice:
+1. GET /customer?organizationNumber=X
+2. GET /invoice?customerId=ID&invoiceDateFrom=2020-01-01&invoiceDateTo=TODAY (BOTH dates required!)
+3. PUT /invoice/{id}/:createCreditNote?date=TODAY (date as QUERY PARAM, not body!)
+Then done:true.""",
+
+"dimension": """Create accounting dimension:
+1. POST /ledger/accountingDimensionName {dimensionName:"NAME", active:true}
+2. POST /ledger/accountingDimensionValue {displayName:"VALUE1", number:"VALUE1", active:true, showInVoucherRegistration:true}
+3. Repeat step 2 for each value
+4. If voucher needed: GET /ledger/account?number=X, then POST /ledger/voucher with correct postings""",
+}
+
+# Base system prompt (used for generic fallback and as header for recipes)
+SYSTEM_HEADER = """You are an AI accounting agent for Tripletex. Respond with ONLY this JSON:
+{"calls": [{"method":"GET|POST|PUT|DELETE","path":"/endpoint","params":{},"body":{}}], "done": false}
+Set done:true when complete. RULES:
+- Every 4xx error hurts score. Never retry same call more than once.
+- Never call: POST /ledger/account, PUT /ledger/posting, POST /salary/transaction, POST /payment
+- After creating something (201), NEVER modify/delete it. Move on.
+- Voucher: row starts at 1 (NEVER 0), include amountGross, sum must be 0.
+- Prompts come in 7 languages (nb,en,es,pt,nn,de,fr)."""
+
 SYSTEM = """You are an AI accounting agent. You complete tasks in Tripletex (Norwegian ERP) by making API calls.
 
 RESPONSE FORMAT — always respond with ONLY this JSON, nothing else:
@@ -35,7 +180,7 @@ Set done:true when task is complete. You will see API results and can make more 
 
 IMPORTANT RULES:
 - Be EFFICIENT. Plan all needed calls upfront. Avoid unnecessary GETs.
-- The Tripletex environment may be EMPTY. If entities don't exist, CREATE them. Don't waste turns searching.
+- The environment starts EMPTY but may have some pre-populated data. ALWAYS GET first to check if entities exist before creating. Use GET /product?number=X, GET /customer?organizationNumber=X, GET /supplier?organizationNumber=X.
 - Every 4xx error hurts your score. Validate before sending.
 - NEVER guess IDs for paymentType, costCategory, vatType, rateCategory etc. ALWAYS GET them first.
 - You CANNOT create or delete ledger accounts. Use existing accounts only. NEVER delete vouchers.
@@ -126,9 +271,9 @@ PUT endpoints (update/actions):
 - PUT /invoice/{id}/:payment — use QUERY PARAMS not body: ?paymentDate=YYYY-MM-DD&paymentTypeId=N&paidAmount=N&paidAmountCurrency=N
   * GET /invoice/paymentType FIRST to find valid paymentTypeId (IDs vary per environment)
   * Send ALL payment fields as params:{}, NOT body:{}
-- PUT /invoice/{id}/:createCreditNote {date:"YYYY-MM-DD", comment?}
+- PUT /invoice/{id}/:createCreditNote — use QUERY PARAMS: ?date=YYYY-MM-DD (NOT body! body gives 422)
 - PUT /invoice/{id}/:createReminder
-- PUT /invoice/{id}/:send {method:"EMAIL", emailRecipient?}
+- PUT /invoice/{id}/:send?sendType=EMAIL (sendType as QUERY PARAM, not body)
 - PUT /ledger/voucher/{id}/:reverse {date:"YYYY-MM-DD"}
 - PUT /customer/{id}, PUT /employee/{id}, PUT /project/{id} etc.
 
@@ -187,6 +332,16 @@ def api(session, base, call):
         log.info(f"  {method} {path}: {r.status_code}")
         if r.status_code >= 400:
             log.error(f"    ERROR: {r.text[:300]}")
+            # Learn from errors
+            try:
+                err_data = r.json()
+                for vm in err_data.get("validationMessages", []):
+                    emsg = vm.get("message", "")
+                    if emsg:
+                        fix = f"When calling {method} {path}: {emsg}"
+                        save_lesson(emsg, fix)
+            except:
+                pass
         data = r.json()
         s = json.dumps(data, ensure_ascii=False)
         if len(s) > 2000 and "values" in data:
@@ -234,9 +389,61 @@ async def solve(request: Request):
     except:
         pass
 
+    # Pre-calculate numbers from prompt so LLM doesn't have to do arithmetic
+    def calc_helper(prompt_text):
+        calcs = []
+        import re as _re
+        # Currency: amount × rate
+        for m in _re.finditer(r'(\d[\d\s]*(?:[.,]\d+)?)\s*EUR.*?(\d+[.,]\d+)\s*NOK/EUR', prompt_text):
+            eur = float(m.group(1).replace(" ", "").replace(",", "."))
+            rate = float(m.group(2).replace(",", "."))
+            nok = round(eur * rate, 2)
+            calcs.append(f"{eur} EUR × {rate} NOK/EUR = {nok} NOK")
+        # Two rates → calculate difference
+        rates = _re.findall(r'(\d+[.,]\d+)\s*NOK/EUR', prompt_text)
+        eur_amounts = _re.findall(r'(\d[\d\s]*(?:[.,]\d+)?)\s*EUR', prompt_text)
+        if len(rates) >= 2 and eur_amounts:
+            eur = float(eur_amounts[0].replace(" ", "").replace(",", "."))
+            r1 = float(rates[0].replace(",", "."))
+            r2 = float(rates[1].replace(",", "."))
+            nok1 = round(eur * r1, 2)
+            nok2 = round(eur * r2, 2)
+            diff = round(nok2 - nok1, 2)
+            calcs.append(f"Original: {eur} × {r1} = {nok1} NOK")
+            calcs.append(f"Payment: {eur} × {r2} = {nok2} NOK")
+            calcs.append(f"Exchange difference: {nok2} - {nok1} = {diff} NOK")
+        # VAT: amount inkl MVA → netto + MVA
+        for m in _re.finditer(r'(\d[\d\s]*(?:[.,]\d+)?)\s*(?:kr|NOK)?\s*(?:inklusiv|inkl|including|incl|inklusive|einschließlich|incluant|incluindo|incluyendo)\s*(?:MVA|mva|VAT|MwSt|TVA|IVA)', prompt_text, _re.I):
+            brutto = float(m.group(1).replace(" ", "").replace(",", "."))
+            netto = round(brutto / 1.25, 2)
+            mva = round(brutto - netto, 2)
+            calcs.append(f"{brutto} incl 25% VAT: netto={netto}, VAT={mva}")
+        # Salary + bonus
+        base_m = _re.search(r'(?:base|grunn|salaire|sueldo|salário).*?(\d[\d\s]*(?:[.,]\d+)?)\s*(?:kr|NOK)', prompt_text, _re.I)
+        bonus_m = _re.search(r'(?:bonus|prime|prima).*?(\d[\d\s]*(?:[.,]\d+)?)\s*(?:kr|NOK)', prompt_text, _re.I)
+        if base_m and bonus_m:
+            base = float(base_m.group(1).replace(" ", "").replace(",", "."))
+            bonus = float(bonus_m.group(1).replace(" ", "").replace(",", "."))
+            calcs.append(f"Base salary: {base}, Bonus: {bonus}, Total: {base + bonus}")
+        # Depreciation: cost / years
+        for m in _re.finditer(r'(\d[\d\s]*(?:[.,]\d+)?)\s*(?:kr|NOK).*?(\d+)\s*(?:år|year|an|año|ano|jahr)', prompt_text, _re.I):
+            cost = float(m.group(1).replace(" ", "").replace(",", "."))
+            years = int(m.group(2))
+            annual = round(cost / years, 2)
+            monthly = round(annual / 12, 2)
+            calcs.append(f"Depreciation: {cost} / {years} years = {annual}/year = {monthly}/month")
+        return calcs
+
+    calcs = calc_helper(prompt)
+
     # Build user message with prompt + decoded files
     today = datetime.utcnow().strftime("%Y-%m-%d")
+    lessons = get_lessons_text()
     user_msg = f"Today's date: {today}\n\nTask:\n{prompt}"
+    if calcs:
+        user_msg += "\n\nPRE-CALCULATED VALUES (use these exact numbers):\n" + "\n".join(f"  {c}" for c in calcs)
+    if lessons:
+        user_msg += f"\n\n{lessons}"
     if acct_summary:
         user_msg += f"\n\nAVAILABLE LEDGER ACCOUNTS (number:name id):\n{acct_summary}"
     for f in files[:3]:
@@ -254,6 +461,7 @@ async def solve(request: Request):
         except:
             pass
 
+    # Always use full system prompt — recipe detection caused misclassification issues
     msgs = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user_msg}]
 
     for turn in range(15):

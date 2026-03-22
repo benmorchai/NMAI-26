@@ -1,0 +1,49 @@
+{
+  "lessons": [
+    {
+      "error": "Leverandør mangler.",
+      "fix": "When calling POST /ledger/voucher: Leverandør mangler.",
+      "ts": "2026-03-22T10:30:53.072475"
+    },
+    {
+      "error": "Feltet eksisterer ikke i objektet.",
+      "fix": "When calling POST /ledger/voucher: Feltet eksisterer ikke i objektet.",
+      "ts": "2026-03-22T10:56:44.947120"
+    },
+    {
+      "error": "Produktnummeret 9716 er i bruk.",
+      "fix": "When calling POST /product: Produktnummeret 9716 er i bruk.",
+      "ts": "2026-03-22T10:59:27.048547"
+    },
+    {
+      "error": "Produktnummeret 6906 er i bruk.",
+      "fix": "When calling POST /product: Produktnummeret 6906 er i bruk.",
+      "ts": "2026-03-22T10:59:27.662184"
+    },
+    {
+      "error": "Produktnummeret 2265 er i bruk.",
+      "fix": "When calling POST /product: Produktnummeret 2265 er i bruk.",
+      "ts": "2026-03-22T10:59:28.276740"
+    },
+    {
+      "error": "Finner ikke en gyldig regnskapskonto for produktet 6906 Skylagring og mva-koden 11: Fradrag inngående avgift, middels sats.",
+      "fix": "When calling POST /order: Finner ikke en gyldig regnskapskonto for produktet 6906 Skylagring og mva-koden 11: Fradrag inngående avgift, middels sats.",
+      "ts": "2026-03-22T10:59:38.148521"
+    },
+    {
+      "error": "Ugyldig mva-kode.",
+      "fix": "When calling POST /order: Ugyldig mva-kode.",
+      "ts": "2026-03-22T10:59:38.149603"
+    },
+    {
+      "error": "Faktura kan ikke opprettes før selskapet har registrert et bankkontonummer.",
+      "fix": "When calling POST /invoice: Faktura kan ikke opprettes før selskapet har registrert et bankkontonummer.",
+      "ts": "2026-03-22T10:59:54.080451"
+    },
+    {
+      "error": "'From and including' value (Sun Mar 22 00:00:00 CET 2026) is greater than or equal 'To and excluding' value (Sun Mar 22 00:00:00 CET 2026) in filter.",
+      "fix": "When calling GET /invoice: 'From and including' value (Sun Mar 22 00:00:00 CET 2026) is greater than or equal 'To and excluding' value (Sun Mar 22 00:00:00 CET 2026) in filter.",
+      "ts": "2026-03-22T10:59:58.896340"
+    }
+  ]
+}
