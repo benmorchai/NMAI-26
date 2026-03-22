@@ -37,11 +37,15 @@ def save_lesson(error_msg, fix):
 
 def get_lessons_text():
     mem = load_memory()
-    if not mem["lessons"]:
-        return ""
-    lines = ["LESSONS FROM PREVIOUS RUNS (avoid these mistakes):"]
-    for l in mem["lessons"][-20:]:
-        lines.append(f"- {l['fix']}")
+    lines = []
+    if mem.get("rules"):
+        lines.append("CRITICAL RULES (always follow):")
+        for r in mem["rules"]:
+            lines.append(f"- {r}")
+    if mem.get("lessons"):
+        lines.append("\nLESSONS FROM PREVIOUS ERRORS:")
+        for l in mem["lessons"][-15:]:
+            lines.append(f"- {l['fix']}")
     return "\n".join(lines)
 
 ENV = {}
@@ -102,7 +106,7 @@ One call, then done:true.""",
 
 "create_employee": """Create employee:
 1. GET /department?count=50 to find department ID
-2. POST /employee {firstName, lastName, userType:"NO_ACCESS", department:{id:DEPT_ID}, email, dateOfBirth:"YYYY-MM-DD"}
+2. POST /employee {firstName, lastName, userType:"EXTENDED", department:{id:DEPT_ID}, email, dateOfBirth:"YYYY-MM-DD"}
 3. POST /employee/employment {employee:{id:EMP_ID}, startDate:"YYYY-MM-DD"}
 4. POST /employee/employment/details {employment:{id:EMPL_ID}, date:"YYYY-MM-DD", employmentType:"ORDINARY", remunerationType:"MONTHLY_WAGE", workingHoursScheme:"NOT_SHIFT", percentageOfFullTimeEquivalent:100, annualSalary:N}
 If occupation code mentioned: GET /employee/employment/occupationCode?count=50 first, add occupationCode:{id} to details.""",
@@ -231,7 +235,7 @@ All GET responses: {"values": [...], "fullResultSize": N}
 
 POST endpoints (create):
 - POST /customer {name, isCustomer:true, email?, organizationNumber?, phoneNumber?, postalAddress?:{addressLine1,postalCode,city}}
-- POST /employee {firstName, lastName, userType:"NO_ACCESS", department:{id:X}, email?, dateOfBirth:"YYYY-MM-DD"}
+- POST /employee {firstName, lastName, userType:"EXTENDED", department:{id:X}, email?, dateOfBirth:"YYYY-MM-DD"}
   * MUST include department — GET /department first to find ID
   * MUST include dateOfBirth — required for creating employment later
 - POST /employee/employment {employee:{id:X}, startDate:"YYYY-MM-DD"}

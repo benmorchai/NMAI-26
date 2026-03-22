@@ -1,4 +1,11 @@
 {
+  "rules": [
+    "Products, customers, suppliers, and employees may ALREADY EXIST in the environment. ALWAYS GET first with name/number/organizationNumber to check. If found, use existing ID. Only POST if GET returns 0 results.",
+    "For voucher postings: use freeAccountingDimension1 (not dimension1) to link to custom dimensions.",
+    "Employee ID 1 is 'Historisk ansatt' and cannot be project manager. Always GET /employee first to find a valid employee.",
+    "For invoice dates: invoiceDateFrom must be BEFORE invoiceDateTo. Use a range like 2026-01-01 to 2026-12-31.",
+    "Product vatType for 15% (food) is id=31 (Utgående avgift, middels sats), NOT id=11 (Fradrag inngående)."
+  ],
   "lessons": [
     {
       "error": "Leverandør mangler.",
@@ -44,6 +51,21 @@
       "error": "'From and including' value (Sun Mar 22 00:00:00 CET 2026) is greater than or equal 'To and excluding' value (Sun Mar 22 00:00:00 CET 2026) in filter.",
       "fix": "When calling GET /invoice: 'From and including' value (Sun Mar 22 00:00:00 CET 2026) is greater than or equal 'To and excluding' value (Sun Mar 22 00:00:00 CET 2026) in filter.",
       "ts": "2026-03-22T10:59:58.896340"
+    },
+    {
+      "error": "Oppgitt prosjektleder har ikke fått tilgang som prosjektleder i kontoen: Historisk ansatt.",
+      "fix": "When calling POST /project: Oppgitt prosjektleder har ikke fått tilgang som prosjektleder i kontoen: Historisk ansatt.",
+      "ts": "2026-03-22T11:13:28.179114"
+    },
+    {
+      "error": "Kan ikke være null.",
+      "fix": "When calling POST /travelExpense/perDiemCompensation: Kan ikke være null.",
+      "ts": "2026-03-22T11:33:09.955356"
+    },
+    {
+      "error": "Reiseregningens dato samsvarer ikke med valgt satskategori.",
+      "fix": "When calling POST /travelExpense/perDiemCompensation: Reiseregningens dato samsvarer ikke med valgt satskategori.",
+      "ts": "2026-03-22T11:33:28.136971"
     }
   ]
 }
